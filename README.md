@@ -72,6 +72,8 @@ uv run python main.py
 /config ext add <.ext>         whitelist an extension for indexing
 /config ext rm <.ext>          move an extension to the skiplist
 /config ext reset              reset extensions to defaults
+/config rules <path>           set a custom YARA rules directory
+/config rules reset            revert to the bundled rules directory
 ```
 
 ### Keyboard shortcuts
@@ -105,7 +107,9 @@ Binary, structured data, archives, images, audio, video — everything that won'
 
 ## YARA Rules
 
-Place `.yar` or `.yara` files in `src/trawler/rules/`. All rules are compiled and run on every `/yara` invocation.
+By default, rules are loaded from `src/trawler/rules/` (bundled with the package). You can point trawler at your own rules directory with `/config rules <path>`, which persists across sessions. Run `/config rules reset` to revert to the default.
+
+Place `.yar` or `.yara` files in your rules directory — all of them are compiled and run on every `/yara` invocation.
 
 An example rule is included at `src/trawler/rules/example.yar` covering email addresses and credential patterns.
 

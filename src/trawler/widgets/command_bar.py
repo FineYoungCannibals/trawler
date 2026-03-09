@@ -23,6 +23,8 @@ COMMANDS = [
     "/config ext add",
     "/config ext rm",
     "/config ext reset",
+    "/config rules",
+    "/config rules reset",
     "/reset",
     "/help",
     "/exit",

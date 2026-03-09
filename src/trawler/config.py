@@ -38,6 +38,8 @@ class TrawlerConfig:
     max_file_bytes: int | None = None
     index_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_INDEX_EXTENSIONS))
     skip_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_EXTENSIONS))
+    # None = use bundled src/trawler/rules/
+    rules_dir: str | None = None
 
     @classmethod
     def load(cls) -> TrawlerConfig:
@@ -54,7 +56,8 @@ class TrawlerConfig:
         index_extensions = index_extensions_raw if index_extensions_raw is not None else list(DEFAULT_INDEX_EXTENSIONS)
         skip_extensions_raw = trawler.get("skip_extensions")
         skip_extensions = skip_extensions_raw if skip_extensions_raw is not None else list(DEFAULT_SKIP_EXTENSIONS)
-        return cls(directories=dirs, embedding_model=model, max_file_bytes=max_file_bytes, index_extensions=index_extensions, skip_extensions=skip_extensions)
+        rules_dir = trawler.get("rules_dir") or None
+        return cls(directories=dirs, embedding_model=model, max_file_bytes=max_file_bytes, index_extensions=index_extensions, skip_extensions=skip_extensions, rules_dir=rules_dir)
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -63,6 +66,8 @@ class TrawlerConfig:
             trawler_section["max_file_bytes"] = self.max_file_bytes
         trawler_section["index_extensions"] = self.index_extensions
         trawler_section["skip_extensions"] = self.skip_extensions
+        if self.rules_dir is not None:
+            trawler_section["rules_dir"] = self.rules_dir
         data: dict = {
             "trawler": trawler_section,
             "directories": [{"path": d} for d in self.directories],

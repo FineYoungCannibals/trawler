@@ -1,13 +1,6 @@
-```
-  ████████╗██████╗  █████╗ ██╗    ██╗██╗     ███████╗██████╗
-  ╚══██╔══╝██╔══██╗██╔══██╗██║    ██║██║     ██╔════╝██╔══██╗
-     ██║   ██████╔╝███████║██║ █╗ ██║██║     █████╗  ██████╔╝
-     ██║   ██╔══██╗██╔══██║██║███╗██║██║     ██╔══╝  ██╔══██╗
-     ██║   ██║  ██║██║  ██║╚███╔███╔╝███████╗███████╗██║  ██║
-     ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝╚══════╝╚═╝  ╚═╝
-```
+# Trawler
 
-> A terminal TUI for triaging data dumps — drop files in a directory, search them fast, escalate what matters.
+### A terminal TUI for triaging data dumps — drop files in a directory, search them fast, escalate what matters.
 
 Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and semantic vector searches across breach data, leaks, and other unstructured dumps — without standing up any infrastructure.
 

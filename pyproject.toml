@@ -4,10 +4,26 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["yara-python>=4.5.4"]
+dependencies = [
+    "chromadb>=0.5",
+    "httpx>=0.28.1",
+    "langchain>=0.3",
+    "langchain-chroma>=0.1",
+    "langchain-huggingface>=0.1",
+    "langchain-text-splitters>=0.3",
+    "python-ripgrep>=0.0.9",
+    "sentence-transformers>=3.0",
+    "textual[syntax]>=8.0.2",
+    "tomli>=2.0",
+    "tomli-w>=1.0",
+    "yara-python>=4.5.4",
+]
 
 [dependency-groups]
-dev = ["pytest>=9.0.2"]
+dev = [
+    "pytest>=9.0.2",
+    "textual-dev>=1.8.0",
+]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]

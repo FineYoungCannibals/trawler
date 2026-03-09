@@ -60,3 +60,34 @@ def test_nonexistent_directory_reports_error():
 def test_matched_file_shown_in_output(data_dir):
     results = _collect(None, [str(data_dir)])
     assert any("emails.txt" in r for r in results)
+
+
+def test_custom_rules_dir(tmp_path, data_dir):
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "custom.yar").write_text("""
+rule custom_keyword {
+    strings:
+        $kw = "quarterly"
+    condition:
+        $kw
+}
+""")
+    results = list(scan(None, [str(data_dir)], rules_dir=str(rules_dir)))
+    assert any("custom_keyword" in r for r in results)
+    # Bundled rules should NOT have run
+    assert not any("email_address" in r for r in results)
+
+
+def test_custom_rules_dir_empty_reports_warning(tmp_path, data_dir):
+    empty_rules = tmp_path / "empty-rules"
+    empty_rules.mkdir()
+    results = list(scan(None, [str(data_dir)], rules_dir=str(empty_rules)))
+    assert len(results) == 1
+    assert "No YARA rules found" in results[0]
+
+
+def test_default_rules_dir_used_when_none(data_dir):
+    # Passing rules_dir=None should fall back to bundled rules
+    results = list(scan(None, [str(data_dir)], rules_dir=None))
+    assert any("email_address" in r for r in results)

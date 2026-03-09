@@ -74,6 +74,8 @@ uv run python main.py
 /config ext reset              reset extensions to defaults
 /config rules <path>           set a custom YARA rules directory
 /config rules reset            revert to the bundled rules directory
+/config proxy <url>            set HTTP/HTTPS proxy (e.g. http://proxy.corp.com:8080)
+/config proxy reset            clear proxy setting
 ```
 
 ### Keyboard shortcuts
@@ -137,6 +139,31 @@ Semantic search uses [sentence-transformers](https://www.sbert.net/) to embed fi
 **When to use it**: semantic search is best for natural language content (emails, logs, notes). It is not well-suited for structured data (JSON, CSV, SQL) — use `/rg` for those.
 
 **Indexing**: run `/index` to embed your directories. Re-running is incremental — only changed files are re-embedded. Indexing large directories will take time on first run; subsequent runs are fast.
+
+---
+
+## Proxy Support
+
+If you're behind a corporate proxy, set it once and it persists across sessions:
+
+```
+/config proxy http://proxy.corp.com:8080
+/config proxy reset    # clear it
+```
+
+This sets `HTTP_PROXY` and `HTTPS_PROXY` in the running process, which is picked up by `requests`, `huggingface_hub`, and `sentence-transformers` when downloading the embedding model or making any outbound requests.
+
+The proxy is applied automatically on startup if one is configured.
+
+### Forcing a model re-download
+
+To test proxy behaviour or recover from a corrupted download, delete the cached model:
+
+```bash
+rm -rf ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
+```
+
+The next `/index` run will re-download it through the configured proxy.
 
 ---
 

@@ -25,6 +25,8 @@ COMMANDS = [
     "/config ext reset",
     "/config rules",
     "/config rules reset",
+    "/config proxy",
+    "/config proxy reset",
     "/reset",
     "/help",
     "/exit",

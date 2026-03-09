@@ -40,6 +40,8 @@ class TrawlerConfig:
     skip_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_SKIP_EXTENSIONS))
     # None = use bundled src/trawler/rules/
     rules_dir: str | None = None
+    # None = no proxy; set to e.g. "http://proxy.corp.com:8080"
+    proxy: str | None = None
 
     @classmethod
     def load(cls) -> TrawlerConfig:
@@ -57,7 +59,8 @@ class TrawlerConfig:
         skip_extensions_raw = trawler.get("skip_extensions")
         skip_extensions = skip_extensions_raw if skip_extensions_raw is not None else list(DEFAULT_SKIP_EXTENSIONS)
         rules_dir = trawler.get("rules_dir") or None
-        return cls(directories=dirs, embedding_model=model, max_file_bytes=max_file_bytes, index_extensions=index_extensions, skip_extensions=skip_extensions, rules_dir=rules_dir)
+        proxy = trawler.get("proxy") or None
+        return cls(directories=dirs, embedding_model=model, max_file_bytes=max_file_bytes, index_extensions=index_extensions, skip_extensions=skip_extensions, rules_dir=rules_dir, proxy=proxy)
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -68,6 +71,8 @@ class TrawlerConfig:
         trawler_section["skip_extensions"] = self.skip_extensions
         if self.rules_dir is not None:
             trawler_section["rules_dir"] = self.rules_dir
+        if self.proxy is not None:
+            trawler_section["proxy"] = self.proxy
         data: dict = {
             "trawler": trawler_section,
             "directories": [{"path": d} for d in self.directories],

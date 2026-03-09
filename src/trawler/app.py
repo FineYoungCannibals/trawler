@@ -490,7 +490,7 @@ class TrawlerApp(App):
                 emit(line)
         elif cmd == "/yara":
             pattern = args.strip() if args.strip() else None
-            for line in yara_scan.scan(pattern, dirs):
+            for line in yara_scan.scan(pattern, dirs, rules_dir=self.config.rules_dir):
                 emit(line)
 
         noun = "result" if count == 1 else "results"
@@ -637,6 +637,9 @@ class TrawlerApp(App):
                 limit_str = _fmt_size(limit)
             results.write(f"  File size limit:  {limit_str}")
             results.write(f"  Embedding model:  [dim]{self.config.embedding_model}[/]")
+            from .search.yara_scan import DEFAULT_RULES_DIR
+            rules_str = self.config.rules_dir if self.config.rules_dir else f"[dim]{DEFAULT_RULES_DIR} (default)[/]"
+            results.write(f"  YARA rules dir:   {rules_str}")
             results.write("")
             exts = self.config.index_extensions
             results.write(f"[bold]Indexed extensions ({len(exts)}):[/]")
@@ -653,6 +656,8 @@ class TrawlerApp(App):
             results.write("  [cyan]/config ext add <.ext>[/]     — whitelist an extension")
             results.write("  [cyan]/config ext rm <.ext>[/]      — move extension to skiplist")
             results.write("  [cyan]/config ext reset[/]          — reset extensions to defaults")
+            results.write("  [cyan]/config rules <path>[/]       — set custom YARA rules directory")
+            results.write("  [cyan]/config rules reset[/]        — revert to bundled rules directory")
             return
 
         if sub == "add":
@@ -737,6 +742,23 @@ class TrawlerApp(App):
 
             else:
                 self.status.set_error(f"Unknown: /config ext {ext_sub} — try list, add, rm, reset")
+
+        elif sub == "rules":
+            if not rest:
+                self.status.set_error("/config rules — usage: /config rules <path> | reset")
+                return
+            if rest.lower() == "reset":
+                self.config.rules_dir = None
+                self.config.save()
+                self.status.set_done("YARA rules directory reset to default")
+            else:
+                p = Path(rest)
+                if not p.is_dir():
+                    self.status.set_error(f"Not a valid directory: {rest}")
+                    return
+                self.config.rules_dir = str(p)
+                self.config.save()
+                self.status.set_done(f"YARA rules directory set to {rest}")
 
         else:
             self.status.set_error(f"Unknown subcommand: /config {sub} — type /config for help")

@@ -7,34 +7,40 @@ from typing import Iterator
 import yara
 from rich.markup import escape
 
-RULES_DIR = Path(__file__).parent.parent / "rules"
+DEFAULT_RULES_DIR = Path(__file__).parent.parent / "rules"
 
 
-def _load_all_rules() -> yara.Rules | None:
-    """Compile all YARA rules from the rules directory."""
-    rule_files = list(RULES_DIR.glob("*.yar")) + list(RULES_DIR.glob("*.yara"))
+def _resolve_rules_dir(rules_dir: str | None) -> Path:
+    return Path(rules_dir) if rules_dir else DEFAULT_RULES_DIR
+
+
+def _load_all_rules(rules_dir: Path) -> yara.Rules | None:
+    """Compile all YARA rules from the given rules directory."""
+    rule_files = list(rules_dir.glob("*.yar")) + list(rules_dir.glob("*.yara"))
     if not rule_files:
         return None
     filepaths = {f.stem: str(f) for f in rule_files}
     return yara.compile(filepaths=filepaths)
 
 
-def scan(pattern: str | None, directories: list[str]) -> Iterator[str]:
+def scan(pattern: str | None, directories: list[str], rules_dir: str | None = None) -> Iterator[str]:
     """Run YARA rules against all files in configured directories.
 
-    pattern: glob to filter by rule name (None or '*' = all rules).
+    pattern:   glob to filter by rule name (None or '*' = all rules).
+    rules_dir: path to rules directory; defaults to the bundled rules/
     """
     if not directories:
         yield "[yellow]No directories configured. Use /config to add one.[/]"
         return
 
-    rule_files = list(RULES_DIR.glob("*.yar")) + list(RULES_DIR.glob("*.yara"))
+    rdir = _resolve_rules_dir(rules_dir)
+    rule_files = list(rdir.glob("*.yar")) + list(rdir.glob("*.yara"))
     if not rule_files:
-        yield f"[yellow]No YARA rules found in:[/] {escape(str(RULES_DIR))}"
+        yield f"[yellow]No YARA rules found in:[/] {escape(str(rdir))}"
         return
 
     try:
-        rules = _load_all_rules()
+        rules = _load_all_rules(rdir)
     except yara.SyntaxError as e:
         yield f"[red]YARA syntax error:[/] {escape(str(e))}"
         return

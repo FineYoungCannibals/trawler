@@ -43,6 +43,8 @@ uv sync
 uv run python main.py
 ```
 
+> `uv run` automatically uses the project's virtual environment — no activation needed. If you prefer an active shell, run `uv shell` first.
+
 ---
 
 ## Commands

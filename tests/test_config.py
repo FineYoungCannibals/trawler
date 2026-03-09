@@ -82,3 +82,45 @@ def test_remove_directory_nonexistent_is_noop(tmp_config):
     cfg.save()
     cfg.remove_directory("/tmp/does-not-exist")
     assert cfg.directories == ["/tmp/foo"]
+
+
+def test_rules_dir_roundtrip(tmp_config):
+    cfg = TrawlerConfig(rules_dir="/tmp/my-rules")
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.rules_dir == "/tmp/my-rules"
+
+
+def test_rules_dir_none_roundtrip(tmp_config):
+    cfg = TrawlerConfig(rules_dir=None)
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.rules_dir is None
+
+
+def test_proxy_roundtrip(tmp_config):
+    cfg = TrawlerConfig(proxy="http://proxy.corp.com:8080")
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.proxy == "http://proxy.corp.com:8080"
+
+
+def test_proxy_none_roundtrip(tmp_config):
+    cfg = TrawlerConfig(proxy=None)
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.proxy is None
+
+
+def test_proxy_not_written_when_none(tmp_config):
+    cfg = TrawlerConfig(proxy=None)
+    cfg.save()
+    content = (tmp_config / "config.toml").read_text()
+    assert "proxy" not in content
+
+
+def test_rules_dir_not_written_when_none(tmp_config):
+    cfg = TrawlerConfig(rules_dir=None)
+    cfg.save()
+    content = (tmp_config / "config.toml").read_text()
+    assert "rules_dir" not in content

@@ -326,9 +326,20 @@ class TrawlerApp(App):
         import threading
         super().__init__()
         self.config = TrawlerConfig.load()
+        self._apply_proxy(self.config.proxy)
         self.index_state = IndexState()
         self._indexing = False
         self._stop_index = threading.Event()
+
+    @staticmethod
+    def _apply_proxy(proxy: str | None) -> None:
+        import os
+        if proxy:
+            os.environ["HTTP_PROXY"] = proxy
+            os.environ["HTTPS_PROXY"] = proxy
+        else:
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -640,6 +651,8 @@ class TrawlerApp(App):
             from .search.yara_scan import DEFAULT_RULES_DIR
             rules_str = self.config.rules_dir if self.config.rules_dir else f"[dim]{DEFAULT_RULES_DIR} (default)[/]"
             results.write(f"  YARA rules dir:   {rules_str}")
+            proxy_str = f"[dim]{self.config.proxy}[/]" if self.config.proxy else "[dim]none[/]"
+            results.write(f"  Proxy:            {proxy_str}")
             results.write("")
             exts = self.config.index_extensions
             results.write(f"[bold]Indexed extensions ({len(exts)}):[/]")
@@ -658,6 +671,8 @@ class TrawlerApp(App):
             results.write("  [cyan]/config ext reset[/]          — reset extensions to defaults")
             results.write("  [cyan]/config rules <path>[/]       — set custom YARA rules directory")
             results.write("  [cyan]/config rules reset[/]        — revert to bundled rules directory")
+            results.write("  [cyan]/config proxy <url>[/]        — set HTTP/HTTPS proxy (e.g. http://proxy:8080)")
+            results.write("  [cyan]/config proxy reset[/]        — clear proxy setting")
             return
 
         if sub == "add":
@@ -742,6 +757,21 @@ class TrawlerApp(App):
 
             else:
                 self.status.set_error(f"Unknown: /config ext {ext_sub} — try list, add, rm, reset")
+
+        elif sub == "proxy":
+            if not rest:
+                self.status.set_error("/config proxy — usage: /config proxy <url> | reset")
+                return
+            if rest.lower() == "reset":
+                self.config.proxy = None
+                self.config.save()
+                self._apply_proxy(None)
+                self.status.set_done("Proxy cleared")
+            else:
+                self.config.proxy = rest
+                self.config.save()
+                self._apply_proxy(rest)
+                self.status.set_done(f"Proxy set to {rest}")
 
         elif sub == "rules":
             if not rest:

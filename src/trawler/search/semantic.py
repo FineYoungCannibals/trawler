@@ -123,7 +123,8 @@ def index(
 
     def read_and_chunk(file_path: Path) -> tuple[Path, list[str] | None, str | None]:
         try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
+            from .extract import extract_text
+            text = extract_text(file_path)
             return file_path, splitter.split_text(text), None
         except (PermissionError, OSError) as e:
             return file_path, None, str(e)

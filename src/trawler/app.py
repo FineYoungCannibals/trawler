@@ -382,7 +382,9 @@ class TrawlerApp(App):
         self._apply_proxy(self.config.proxy)
         self.index_state = IndexState()
         self._indexing = False
+        self._searching = False
         self._stop_index = threading.Event()
+        self._stop_search = threading.Event()
         self._stop_ask = threading.Event()
 
     @staticmethod
@@ -525,6 +527,7 @@ class TrawlerApp(App):
     def _stop_workers(self) -> None:
         """Signal all background workers to stop."""
         self._stop_index.set()
+        self._stop_search.set()
         self._stop_ask.set()
 
     def action_quit(self) -> None:
@@ -532,6 +535,10 @@ class TrawlerApp(App):
             self._stop_index.set()
             self._indexing = False
             self.status.set_info("Stopping after current batch… (Ctrl+C again to force quit)")
+        elif self._searching:
+            self._stop_search.set()
+            self._searching = False
+            self.status.set_info("Search cancelled")
         else:
             self._stop_workers()
             self.exit()
@@ -657,12 +664,14 @@ class TrawlerApp(App):
 
     @work(thread=True)
     def _run_search(self, cmd: str, args: str) -> None:
+        self._stop_search.clear()
+        self._searching = True
         results = self.query_one(ResultsPanel)
-        count = 0
+        match_count = 0
 
         def emit(line: str) -> None:
-            nonlocal count
-            count += 1
+            nonlocal match_count
+            match_count += 1
             self.call_from_thread(results.write, line)
 
         clean_args, dir_filter = self._parse_dir_flag(args)
@@ -672,13 +681,25 @@ class TrawlerApp(App):
             if not p.exists():
                 self.call_from_thread(results.write, f"[red]Path not found:[/] {dir_filter}")
                 self.call_from_thread(self.status.set_error, f"{cmd} — path not found")
+                self._searching = False
                 return
             dirs = [dir_filter]
         else:
             dirs = self.config.directories
 
+        def on_progress(files_scanned: int) -> None:
+            noun = "match" if match_count == 1 else "matches"
+            self.call_from_thread(
+                self.status.set_running,
+                f"{cmd} — {files_scanned:,} files scanned, {match_count} {noun}…",
+            )
+
         if cmd == "/search":
-            for line in basic.search(clean_args, dirs):
+            for line in basic.search(
+                clean_args, dirs,
+                stop_event=self._stop_search,
+                on_progress=on_progress,
+            ):
                 emit(line)
         elif cmd == "/rg":
             for line in ripgrep.search(clean_args, dirs):
@@ -688,8 +709,16 @@ class TrawlerApp(App):
             for line in yara_scan.scan(pattern, dirs, rules_dir=self.config.rules_dir):
                 emit(line)
 
-        noun = "result" if count == 1 else "results"
-        self.call_from_thread(self.status.set_done, f"{cmd} — {count} {noun}")
+        self._searching = False
+        if self._stop_search.is_set():
+            noun = "match" if match_count == 1 else "matches"
+            self.call_from_thread(
+                self.status.set_info,
+                f"{cmd} cancelled — {match_count} {noun} so far",
+            )
+        else:
+            noun = "result" if match_count == 1 else "results"
+            self.call_from_thread(self.status.set_done, f"{cmd} — {match_count} {noun}")
 
     @work(thread=True)
     def _run_semantic_search(self, args: str) -> None:

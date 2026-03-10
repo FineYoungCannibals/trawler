@@ -8,12 +8,13 @@ Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and s
 
 ## Features
 
-- **Regex search** — line-by-line pattern matching across all files
-- **Ripgrep** — fast full-text search with full ripgrep flag support
+- **Regex search** — line-by-line pattern matching across all files, including PDF and DOCX
+- **Ripgrep** — fast full-text search with full ripgrep flag support (plain text files only — see below)
 - **YARA rules** — scan files against rules in `src/trawler/rules/`
 - **Semantic search** — vector similarity search via ChromaDB + sentence-transformers (local, no API key)
 - **LLM `/ask`** — ask a local or remote LLM questions about the current results panel; streams tokens as they arrive
 - **Directory scoping** — add `--dir <path>` to any search command to restrict results to one directory
+- **PDF & DOCX support** — text is extracted from PDF and Word documents for `/search`, `/index`, and `/semantic`; encrypted or image-only PDFs are skipped gracefully
 - **Incremental indexing** — only re-embeds files that have changed since the last run
 - **File type & size filtering** — skip binary, structured, or oversized files before indexing
 - **Progressive command help** — type any command or subcommand alone to see what's available at that level
@@ -157,11 +158,22 @@ Config is stored at `.trawler/config.toml` relative to your working directory. A
 
 ### Default indexed extensions
 
-`.txt` `.md` `.rst` `.text` `.html` `.htm` `.eml` `.mbox` `.log`
+`.txt` `.md` `.rst` `.text` `.html` `.htm` `.eml` `.mbox` `.log` `.pdf` `.docx`
 
 ### Default skipped extensions
 
 Binary, structured data, archives, images, audio, video — everything that won't yield useful semantic content.
+
+### PDF & DOCX support by command
+
+| Command | PDF | DOCX | Notes |
+|---------|-----|------|-------|
+| `/search` | ✓ | ✓ | Text extracted before searching |
+| `/index` + `/semantic` | ✓ | ✓ | Text extracted and embedded |
+| `/yara` | ✓ (partial) | ✗ | Operates on raw bytes; works for text-layer PDFs, not DOCX (compressed ZIP) |
+| `/rg` | ✗ | ✗ | ripgrep treats both as binary and skips them — use `/search` or `/semantic` instead |
+
+> **Scanned PDFs** (image-only, no text layer) return no content — OCR is not included.
 
 ---
 

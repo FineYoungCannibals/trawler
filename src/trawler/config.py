@@ -11,6 +11,7 @@ DEFAULT_INDEX_EXTENSIONS = [
     ".html", ".htm",
     ".eml", ".mbox",
     ".log",
+    ".pdf", ".docx",
 ]
 
 DEFAULT_SKIP_EXTENSIONS = [
@@ -18,7 +19,7 @@ DEFAULT_SKIP_EXTENSIONS = [
     ".sql", ".db", ".sqlite", ".sqlite3",
     ".gz", ".zip", ".tar", ".bz2", ".7z", ".rar",
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico",
-    ".pdf", ".docx", ".xlsx", ".pptx",
+    ".xlsx", ".pptx",
     ".mp3", ".mp4", ".avi", ".mov",
     ".exe", ".dll", ".so", ".dylib",
     ".bin", ".dat",

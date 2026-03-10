@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
+from rich.rule import Rule
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.widget import Widget
@@ -37,6 +38,7 @@ class ResultsPanel(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._buffer: list[str] = []
+        self._last_command_offset: int = 0
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="results-log", markup=True, highlight=False, wrap=True)
@@ -48,12 +50,26 @@ class ResultsPanel(Widget):
 
     def write_header(self, command: str) -> None:
         log = self.query_one(RichLog)
-        log.write(f"[bold dim]─── {command} ───[/]")
+        log.write(Rule(f"[bold cyan]{command}[/]", style="dim", align="left"))
         self._buffer.append(f"─── {command} ───")
+
+    def mark_command_start(self) -> None:
+        """Record the current buffer length so /ask can extract only the latest output."""
+        if self._buffer:
+            log = self.query_one(RichLog)
+            log.write("")
+            log.write("")
+            self._buffer.extend(["", ""])
+        self._last_command_offset = len(self._buffer)
+
+    def last_command_context(self) -> str:
+        """Return the text written since the last mark_command_start() call."""
+        return "\n".join(self._buffer[self._last_command_offset:])
 
     def clear(self) -> None:
         self.query_one(RichLog).clear()
         self._buffer.clear()
+        self._last_command_offset = 0
 
     # ------------------------------------------------------------------
     # Streaming support for /ask

@@ -11,7 +11,6 @@ dependencies = [
     "langchain-chroma>=0.1",
     "langchain-huggingface>=0.1",
     "langchain-text-splitters>=0.3",
-    "llm>=0.28",
     "python-ripgrep>=0.0.9",
     "sentence-transformers>=3.0",
     "textual[syntax]>=8.0.2",

@@ -134,6 +134,17 @@ Every command and subcommand shows its own help when typed alone:
 | `ctrl+c` | Quit (or cancel indexing if running) |
 | `Enter` (empty input) | Return to home screen |
 
+### Selecting text in the results panel
+
+Trawler captures mouse events for its TUI, so plain click-drag won't select text. Use the terminal's bypass modifier instead:
+
+| Terminal | Gesture |
+|----------|---------|
+| macOS iTerm2 | `Cmd` + drag |
+| macOS Terminal.app | `Option` + drag (or disable mouse reporting via View menu) |
+| Windows Terminal | `Shift` + drag |
+| Linux (most terminals) | `Shift` + drag, or middle-click to paste selection |
+
 ---
 
 ## Configuration

@@ -509,6 +509,12 @@ class TrawlerApp(App):
         results.write("Shortcuts:")
         results.write("  [cyan]ctrl+y[/]  — copy all results to clipboard")
         results.write("  [cyan]ctrl+c[/]  — quit")
+        results.write("")
+        results.write("Selecting text in the results panel:")
+        results.write("  [dim]macOS iTerm2[/]        — [cyan]Cmd+drag[/]")
+        results.write("  [dim]macOS Terminal.app[/]  — [cyan]Option+drag[/]  (disable mouse reporting in View menu if needed)")
+        results.write("  [dim]Windows Terminal[/]    — [cyan]Shift+drag[/]")
+        results.write("  [dim]Linux (most)[/]        — [cyan]Shift+drag[/]  or middle-click to paste")
 
     def action_quit(self) -> None:
         if self._indexing:

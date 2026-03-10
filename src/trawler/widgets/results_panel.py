@@ -37,26 +37,68 @@ class ResultsPanel(Widget):
 
     def __init__(self) -> None:
         super().__init__()
+        # Search results — persistent scrollback
         self._buffer: list[str] = []
         self._last_command_offset: int = 0
+        # Utility output (config / help) — separate, ephemeral
+        self._utility_buffer: list[str] = []
+        self._utility_mode: bool = False
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="results-log", markup=True, highlight=False, wrap=True)
+        yield RichLog(id="utility-log", markup=True, highlight=False, wrap=True)
         yield Static("", id="stream-area")
 
+    def on_mount(self) -> None:
+        self.query_one("#utility-log", RichLog).display = False
+
+    # ------------------------------------------------------------------
+    # Mode switching — search vs utility (config / help)
+    # ------------------------------------------------------------------
+
+    def show_search(self) -> None:
+        """Switch to the persistent search results log."""
+        self.query_one("#results-log", RichLog).display = True
+        self.query_one("#utility-log", RichLog).display = False
+        self._utility_mode = False
+
+    def show_utility(self) -> None:
+        """Switch to the utility log and clear it for fresh output."""
+        self.query_one("#results-log", RichLog).display = False
+        log = self.query_one("#utility-log", RichLog)
+        log.clear()
+        log.display = True
+        self._utility_buffer.clear()
+        self._utility_mode = True
+
+    # ------------------------------------------------------------------
+    # Writing — routed by current mode
+    # ------------------------------------------------------------------
+
     def write(self, text: str) -> None:
-        self.query_one(RichLog).write(text)
-        self._buffer.append(_strip_markup(text))
+        if self._utility_mode:
+            self.query_one("#utility-log", RichLog).write(text)
+            self._utility_buffer.append(_strip_markup(text))
+        else:
+            self.query_one("#results-log", RichLog).write(text)
+            self._buffer.append(_strip_markup(text))
 
     def write_header(self, command: str) -> None:
-        log = self.query_one(RichLog)
-        log.write(Rule(f"[bold cyan]{command}[/]", style="dim", align="left"))
-        self._buffer.append(f"─── {command} ───")
+        if self._utility_mode:
+            self.query_one("#utility-log", RichLog).write(
+                Rule(f"[bold cyan]{command}[/]", style="dim", align="left")
+            )
+            self._utility_buffer.append(f"─── {command} ───")
+        else:
+            self.query_one("#results-log", RichLog).write(
+                Rule(f"[bold cyan]{command}[/]", style="dim", align="left")
+            )
+            self._buffer.append(f"─── {command} ───")
 
     def mark_command_start(self) -> None:
         """Record the current buffer length so /ask can extract only the latest output."""
         if self._buffer:
-            log = self.query_one(RichLog)
+            log = self.query_one("#results-log", RichLog)
             log.write("")
             log.write("")
             self._buffer.extend(["", ""])
@@ -67,7 +109,8 @@ class ResultsPanel(Widget):
         return "\n".join(self._buffer[self._last_command_offset:])
 
     def clear(self) -> None:
-        self.query_one(RichLog).clear()
+        """Clear the search results log (used by /reset only)."""
+        self.query_one("#results-log", RichLog).clear()
         self._buffer.clear()
         self._last_command_offset = 0
 
@@ -88,12 +131,13 @@ class ResultsPanel(Widget):
         area.display = False
         area.update("")
         if final_text:
-            self.query_one(RichLog).write(Text(final_text))
+            self.query_one("#results-log", RichLog).write(Text(final_text))
             self._buffer.append(final_text)
 
     def copy_to_clipboard(self) -> bool:
-        """Copy all results to clipboard via pbcopy. Returns True on success."""
-        text = "\n".join(self._buffer)
+        """Copy the currently visible log to clipboard via pbcopy."""
+        buf = self._utility_buffer if self._utility_mode else self._buffer
+        text = "\n".join(buf)
         try:
             subprocess.run(["pbcopy"], input=text.encode(), check=True)
             return True

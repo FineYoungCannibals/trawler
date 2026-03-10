@@ -42,9 +42,9 @@ from .widgets.status_bar import StatusBar
 # Command tree for hierarchical help (Phase 5)
 # ---------------------------------------------------------------------------
 COMMAND_TREE: dict = {
-    "/search":   {"help": "Regex line scan across configured dirs", "args": "<pattern>"},
-    "/rg":       {"help": "Ripgrep search with full option passthrough", "args": "[opts] <pattern>"},
-    "/yara":     {"help": "Run YARA rules against configured dirs", "args": "[rule-glob]"},
+    "/search":   {"help": "Regex line scan across configured dirs", "args": "<pattern> [--dir <path>]"},
+    "/rg":       {"help": "Ripgrep search with full option passthrough", "args": "[opts] <pattern> [--dir <path>]"},
+    "/yara":     {"help": "Run YARA rules against configured dirs", "args": "[rule-glob] [--dir <path>]"},
     "/semantic": {"help": "Vector similarity search (requires /index first)", "args": "<query> [--dir <path>]"},
     "/index":    {"help": "Embed and index configured dirs into ChromaDB"},
     "/ask":      {"help": "Ask a local or remote LLM about current results", "args": "<question>"},
@@ -495,9 +495,9 @@ class TrawlerApp(App):
         results.write("[bold]Welcome to Trawler[/]")
         results.write("")
         results.write("Commands:")
-        results.write("  [cyan]/search <pattern>[/]  — regex string search")
-        results.write("  [cyan]/rg [opts] <pattern>[/]  — ripgrep search")
-        results.write("  [cyan]/yara [rule-glob][/]  — run YARA rules (* = all)")
+        results.write("  [cyan]/search <pattern> [--dir <path>][/]  — regex string search")
+        results.write("  [cyan]/rg [opts] <pattern> [--dir <path>][/]  — ripgrep search")
+        results.write("  [cyan]/yara [rule-glob] [--dir <path>][/]  — run YARA rules (* = all)")
         results.write("  [cyan]/semantic <query> [--dir <path>][/]  — vector/semantic search")
         results.write("  [cyan]/index[/]  — embed & index directories for semantic search")
         results.write("  [cyan]/ask <question>[/]  — ask a local or remote LLM about current results")
@@ -609,6 +609,26 @@ class TrawlerApp(App):
             results.write(f"[red]Unknown command:[/] {text}")
             results.write("Type [cyan]/help[/] to see available commands.")
 
+    @staticmethod
+    def _parse_dir_flag(args: str) -> tuple[str, str | None]:
+        """Strip --dir <path> from args and return (cleaned_args, dir_path | None)."""
+        import shlex
+        try:
+            parts = shlex.split(args)
+        except ValueError:
+            return args, None
+        cleaned: list[str] = []
+        dir_path: str | None = None
+        i = 0
+        while i < len(parts):
+            if parts[i] == "--dir" and i + 1 < len(parts):
+                dir_path = parts[i + 1]
+                i += 2
+            else:
+                cleaned.append(parts[i])
+                i += 1
+        return shlex.join(cleaned), dir_path
+
     @work(thread=True)
     def _run_search(self, cmd: str, args: str) -> None:
         results = self.query_one(ResultsPanel)
@@ -619,16 +639,26 @@ class TrawlerApp(App):
             count += 1
             self.call_from_thread(results.write, line)
 
-        dirs = self.config.directories
+        clean_args, dir_filter = self._parse_dir_flag(args)
+
+        if dir_filter is not None:
+            p = Path(dir_filter)
+            if not p.exists():
+                self.call_from_thread(results.write, f"[red]Path not found:[/] {dir_filter}")
+                self.call_from_thread(self.status.set_error, f"{cmd} — path not found")
+                return
+            dirs = [dir_filter]
+        else:
+            dirs = self.config.directories
 
         if cmd == "/search":
-            for line in basic.search(args, dirs):
+            for line in basic.search(clean_args, dirs):
                 emit(line)
         elif cmd == "/rg":
-            for line in ripgrep.search(args, dirs):
+            for line in ripgrep.search(clean_args, dirs):
                 emit(line)
         elif cmd == "/yara":
-            pattern = args.strip() if args.strip() else None
+            pattern = clean_args.strip() if clean_args.strip() else None
             for line in yara_scan.scan(pattern, dirs, rules_dir=self.config.rules_dir):
                 emit(line)
 
@@ -861,14 +891,14 @@ class TrawlerApp(App):
                 results.write_header("/config path")
                 results.write("[bold]Watched directories:[/]")
                 if self.config.directories:
-                    for d in self.config.directories:
-                        results.write(f"  [cyan]{d}[/]")
+                    for i, d in enumerate(self.config.directories, 1):
+                        results.write(f"  [dim]{i}.[/]  [cyan]{d}[/]")
                 else:
                     results.write("  [dim]none configured[/]")
                 results.write("")
                 results.write("[bold]Commands:[/]")
                 results.write("  [cyan]/config path add <path>[/]  — add a watched directory")
-                results.write("  [cyan]/config path rm <path>[/]   — remove a watched directory")
+                results.write("  [cyan]/config path rm <n|path>[/] — remove by number or full path")
 
             elif path_sub == "add":
                 if path_val:
@@ -878,9 +908,19 @@ class TrawlerApp(App):
 
             elif path_sub == "rm":
                 if not path_val:
-                    self.status.set_error("/config path rm — usage: /config path rm <path>")
+                    self.status.set_error("/config path rm — usage: /config path rm <n> or /config path rm <path>")
                     return
-                if path_val in self.config.directories:
+                # Accept a 1-based index as shorthand (e.g. /config path rm 1)
+                if path_val.isdigit():
+                    idx = int(path_val) - 1
+                    if 0 <= idx < len(self.config.directories):
+                        removed = self.config.directories[idx]
+                        self.config.remove_directory(removed)
+                        self.query_one(DirectorySidebar).refresh_directories()
+                        self.status.set_done(f"Removed {removed}")
+                    else:
+                        self.status.set_error(f"No directory at index {path_val} — use /config path to list")
+                elif path_val in self.config.directories:
                     self.config.remove_directory(path_val)
                     self.query_one(DirectorySidebar).refresh_directories()
                     self.status.set_done(f"Removed {path_val}")

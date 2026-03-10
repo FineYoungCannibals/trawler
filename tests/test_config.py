@@ -124,3 +124,73 @@ def test_rules_dir_not_written_when_none(tmp_config):
     cfg.save()
     content = (tmp_config / "config.toml").read_text()
     assert "rules_dir" not in content
+
+
+# ---------------------------------------------------------------------------
+# LLM config
+# ---------------------------------------------------------------------------
+
+def test_llm_defaults(tmp_config):
+    cfg = TrawlerConfig.load()
+    assert cfg.llm_model is None
+    assert cfg.llm_backend == "mlx"
+    assert cfg.llm_context_tokens == 2048
+    assert cfg.llm_remote_url is None
+    assert cfg.llm_remote_api_key is None
+    assert cfg.llm_system_prompt is None
+
+
+def test_llm_roundtrip(tmp_config):
+    cfg = TrawlerConfig(
+        llm_model="mlx-community/Mistral-7B-Instruct-v0.2-4bit",
+        llm_backend="mlx",
+        llm_context_tokens=4096,
+        llm_remote_url=None,
+        llm_remote_api_key=None,
+        llm_system_prompt="Be concise.",
+    )
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.llm_model == "mlx-community/Mistral-7B-Instruct-v0.2-4bit"
+    assert loaded.llm_backend == "mlx"
+    assert loaded.llm_context_tokens == 4096
+    assert loaded.llm_system_prompt == "Be concise."
+
+
+def test_llm_remote_roundtrip(tmp_config):
+    cfg = TrawlerConfig(
+        llm_backend="remote",
+        llm_model="mistral",
+        llm_remote_url="http://localhost:11434/v1",
+        llm_remote_api_key="sk-test",
+    )
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.llm_backend == "remote"
+    assert loaded.llm_model == "mistral"
+    assert loaded.llm_remote_url == "http://localhost:11434/v1"
+    assert loaded.llm_remote_api_key == "sk-test"
+
+
+def test_llm_not_written_when_none(tmp_config):
+    cfg = TrawlerConfig()
+    cfg.save()
+    content = (tmp_config / "config.toml").read_text()
+    assert "llm_model" not in content
+    assert "llm_remote_url" not in content
+    assert "llm_remote_api_key" not in content
+    assert "llm_system_prompt" not in content
+
+
+def test_llm_system_prompt_none_roundtrip(tmp_config):
+    cfg = TrawlerConfig(llm_system_prompt=None)
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.llm_system_prompt is None
+
+
+def test_llm_context_tokens_roundtrip(tmp_config):
+    cfg = TrawlerConfig(llm_context_tokens=8192)
+    cfg.save()
+    loaded = TrawlerConfig.load()
+    assert loaded.llm_context_tokens == 8192

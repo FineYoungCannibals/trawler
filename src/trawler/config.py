@@ -42,6 +42,19 @@ class TrawlerConfig:
     rules_dir: str | None = None
     # None = no proxy; set to e.g. "http://proxy.corp.com:8080"
     proxy: str | None = None
+    # LLM settings (Phase 6)
+    # None = LLM disabled; model ID (HF hub ID or local path) for local backends
+    llm_model: str | None = None
+    # "mlx" (Apple Silicon), "llama-cpp" (cross-platform), "remote" (OpenAI-compat endpoint)
+    llm_backend: str = "mlx"
+    # max tokens of context sent to LLM (~4 chars per token)
+    llm_context_tokens: int = 2048
+    # remote endpoint base URL, e.g. "http://192.168.1.50:11434"
+    llm_remote_url: str | None = None
+    # optional API key for remote endpoint
+    llm_remote_api_key: str | None = None
+    # optional system prompt sent before user message; None = no system prompt
+    llm_system_prompt: str | None = None
 
     @classmethod
     def load(cls) -> TrawlerConfig:
@@ -60,7 +73,27 @@ class TrawlerConfig:
         skip_extensions = skip_extensions_raw if skip_extensions_raw is not None else list(DEFAULT_SKIP_EXTENSIONS)
         rules_dir = trawler.get("rules_dir") or None
         proxy = trawler.get("proxy") or None
-        return cls(directories=dirs, embedding_model=model, max_file_bytes=max_file_bytes, index_extensions=index_extensions, skip_extensions=skip_extensions, rules_dir=rules_dir, proxy=proxy)
+        llm_model = trawler.get("llm_model") or None
+        llm_backend = trawler.get("llm_backend", "mlx")
+        llm_context_tokens = int(trawler.get("llm_context_tokens", 2048))
+        llm_remote_url = trawler.get("llm_remote_url") or None
+        llm_remote_api_key = trawler.get("llm_remote_api_key") or None
+        llm_system_prompt = trawler.get("llm_system_prompt") or None
+        return cls(
+            directories=dirs,
+            embedding_model=model,
+            max_file_bytes=max_file_bytes,
+            index_extensions=index_extensions,
+            skip_extensions=skip_extensions,
+            rules_dir=rules_dir,
+            proxy=proxy,
+            llm_model=llm_model,
+            llm_backend=llm_backend,
+            llm_context_tokens=llm_context_tokens,
+            llm_remote_url=llm_remote_url,
+            llm_remote_api_key=llm_remote_api_key,
+            llm_system_prompt=llm_system_prompt,
+        )
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -73,6 +106,16 @@ class TrawlerConfig:
             trawler_section["rules_dir"] = self.rules_dir
         if self.proxy is not None:
             trawler_section["proxy"] = self.proxy
+        if self.llm_model is not None:
+            trawler_section["llm_model"] = self.llm_model
+        trawler_section["llm_backend"] = self.llm_backend
+        trawler_section["llm_context_tokens"] = self.llm_context_tokens
+        if self.llm_remote_url is not None:
+            trawler_section["llm_remote_url"] = self.llm_remote_url
+        if self.llm_remote_api_key is not None:
+            trawler_section["llm_remote_api_key"] = self.llm_remote_api_key
+        if self.llm_system_prompt is not None:
+            trawler_section["llm_system_prompt"] = self.llm_system_prompt
         data: dict = {
             "trawler": trawler_section,
             "directories": [{"path": d} for d in self.directories],

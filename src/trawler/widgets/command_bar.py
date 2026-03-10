@@ -15,9 +15,11 @@ COMMANDS = [
     "/yara",
     "/semantic",
     "/index",
+    "/ask",
     "/config",
-    "/config add",
-    "/config rm",
+    "/config path",
+    "/config path add",
+    "/config path rm",
     "/config filesize",
     "/config ext list",
     "/config ext add",
@@ -27,12 +29,20 @@ COMMANDS = [
     "/config rules reset",
     "/config proxy",
     "/config proxy reset",
+    "/config llm",
+    "/config llm mlx",
+    "/config llm gguf",
+    "/config llm remote",
+    "/config llm apikey",
+    "/config llm systemprompt",
+    "/config llm systemprompt reset",
+    "/config llm reset",
     "/reset",
     "/help",
     "/exit",
 ]
 
-_PATH_PREFIX = "/config add "
+_PATH_PREFIX = "/config path add "
 
 
 class CommandSuggester(Suggester):
@@ -117,7 +127,7 @@ class CommandBar(Widget):
         with Horizontal():
             yield Label(">")
             yield Input(
-                placeholder="/search  /rg  /yara  /semantic  /index  /config  /help  /exit",
+                placeholder="/search  /rg  /yara  /semantic  /index  /ask  /config  /help  /exit",
                 id="cmd-input",
                 suggester=CommandSuggester(),
             )
@@ -134,3 +144,10 @@ class CommandBar(Widget):
 
     def focus_input(self) -> None:
         self.query_one(Input).focus()
+
+    def set_busy(self, busy: bool) -> None:
+        inp = self.query_one(Input)
+        inp.disabled = busy
+        inp.placeholder = "waiting for LLM…" if busy else "/search  /rg  /yara  /semantic  /index  /ask  /config  /help  /exit"
+        if not busy:
+            inp.focus()

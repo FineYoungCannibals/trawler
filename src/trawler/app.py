@@ -38,6 +38,59 @@ from .widgets.results_panel import ResultsPanel
 from .widgets.sidebar import DirectorySidebar
 from .widgets.status_bar import StatusBar
 
+# ---------------------------------------------------------------------------
+# Command tree for hierarchical help (Phase 5)
+# ---------------------------------------------------------------------------
+COMMAND_TREE: dict = {
+    "/search":   {"help": "Regex line scan across configured dirs", "args": "<pattern>"},
+    "/rg":       {"help": "Ripgrep search with full option passthrough", "args": "[opts] <pattern>"},
+    "/yara":     {"help": "Run YARA rules against configured dirs", "args": "[rule-glob]"},
+    "/semantic": {"help": "Vector similarity search (requires /index first)", "args": "<query> [--dir <path>]"},
+    "/index":    {"help": "Embed and index configured dirs into ChromaDB"},
+    "/ask":      {"help": "Ask a local or remote LLM about current results", "args": "<question>"},
+    "/reset":    {"help": "Clear vector store & index history (requires confirmation)"},
+    "/help":     {"help": "Show help", "args": "[command]"},
+    "/exit":     {"help": "Exit trawler"},
+    "/config": {
+        "help": "View or change configuration",
+        "subcommands": {
+            "path": {
+                "help": "Manage watched directories",
+                "subcommands": {
+                    "add": {"help": "Add a directory to watch", "args": "<path>"},
+                    "rm":  {"help": "Remove a watched directory", "args": "<path>"},
+                },
+            },
+            "list":     {"help": "List configured directories and settings"},
+            "filesize": {"help": "Set max file size for indexing", "args": "<value|0=unlimited>"},
+            "rules":    {"help": "Set custom YARA rules directory", "args": "<path>|reset"},
+            "proxy":    {"help": "Set HTTP proxy for model downloads", "args": "<url>|reset"},
+            "ext": {
+                "help": "Manage file extension filters",
+                "subcommands": {
+                    "list":  {"help": "Show current index/skip extension lists"},
+                    "add":   {"help": "Add extension to index whitelist", "args": "<.ext>"},
+                    "rm":    {"help": "Move extension to skip list", "args": "<.ext>"},
+                    "reset": {"help": "Restore default extension lists"},
+                },
+            },
+            "llm": {
+                "help": "Configure local or remote LLM for /ask",
+                "subcommands": {
+                    "mlx <hf-repo-id>":         {"help": "Apple Silicon — HuggingFace repo ID, downloaded automatically"},
+                    "gguf <path>":              {"help": "Cross-platform — local path to a .gguf file"},
+                    "remote <url>":             {"help": "Base URL of remote OpenAI-compatible endpoint"},
+                    "remote <url> <model>":     {"help": "Remote endpoint base URL + model name"},
+                    "apikey <key>":             {"help": "Set API key for remote endpoint"},
+                    "systemprompt <text>":      {"help": "Set system prompt"},
+                    "systemprompt reset":       {"help": "Remove system prompt"},
+                    "reset":                    {"help": "Disable LLM"},
+                },
+            },
+        },
+    },
+}
+
 # (description, recommended_to_index)
 EXTENSION_NOTES: dict[str, tuple[str, bool]] = {
     ".json":   ("structured data — poor semantic value", False),
@@ -355,7 +408,7 @@ class TrawlerApp(App):
 
     def on_mount(self) -> None:
         self.query_one(CommandBar).focus_input()
-        self._show_help()
+        self._show_home()
         self.status.set_hint("Press Enter to return home")
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -365,7 +418,61 @@ class TrawlerApp(App):
             else:
                 self.status.set_hint("Press Enter to return home")
 
-    def _show_help(self) -> None:
+    # ------------------------------------------------------------------
+    # Help system
+    # ------------------------------------------------------------------
+
+    def _show_help(self, path: list[str] | None = None) -> None:
+        """Show help. With no path shows home screen; with path walks COMMAND_TREE."""
+        if not path:
+            self._show_home()
+            return
+
+        results = self.query_one(ResultsPanel)
+        results.clear()
+
+        # Normalise first token: "config" → "/config"
+        tokens = [t if t.startswith("/") else "/" + t for t in path[:1]] + path[1:]
+        first = tokens[0]
+
+        if first not in COMMAND_TREE:
+            results.write_header(f"/help {' '.join(path)}")
+            results.write(f"[red]Unknown command:[/] {first}")
+            results.write("Type [cyan]/help[/] for a list of commands.")
+            return
+
+        node: dict = COMMAND_TREE[first]
+        walked = [first]
+
+        for token in tokens[1:]:
+            subs = node.get("subcommands", {})
+            if token not in subs:
+                break
+            node = subs[token]
+            walked.append(token)
+
+        header = " ".join(walked)
+        results.write_header(f"/help {header}")
+        results.write(f"[bold]{node.get('help', '')}[/]")
+        results.write("")
+
+        subs = node.get("subcommands")
+        if subs:
+            results.write("[bold]Subcommands:[/]")
+            for name, info in subs.items():
+                args = info.get("args", "")
+                desc = info.get("help", "")
+                full = f"{header} {name}"
+                if args:
+                    results.write(f"  [cyan]{full} {args}[/]  — {desc}")
+                else:
+                    results.write(f"  [cyan]{full}[/]  — {desc}")
+        else:
+            args = node.get("args", "")
+            full = header + (f" {args}" if args else "")
+            results.write(f"  [cyan]{full}[/]")
+
+    def _show_home(self) -> None:
         results = self.query_one(ResultsPanel)
         self.status._reset()
         results.clear()
@@ -393,6 +500,7 @@ class TrawlerApp(App):
         results.write("  [cyan]/yara [rule-glob][/]  — run YARA rules (* = all)")
         results.write("  [cyan]/semantic <query> [--dir <path>][/]  — vector/semantic search")
         results.write("  [cyan]/index[/]  — embed & index directories for semantic search")
+        results.write("  [cyan]/ask <question>[/]  — ask a local or remote LLM about current results")
         results.write("  [cyan]/config [subcommand][/]  — manage configuration (run for details)")
         results.write("  [cyan]/reset[/]  — clear vector store & index history (requires confirmation)")
         results.write("  [cyan]/help[/]  — show this screen")
@@ -432,7 +540,7 @@ class TrawlerApp(App):
         args = parts[1] if len(parts) > 1 else ""
 
         if cmd == "/help":
-            self._show_help()
+            self._show_help(args.split() if args else None)
             return
         if cmd in ("/exit", "/quit"):
             self.exit()
@@ -469,6 +577,26 @@ class TrawlerApp(App):
                 return
             self.status.set_running(f"/semantic {args}")
             self._run_semantic_search(args)
+        elif cmd == "/ask":
+            if not args:
+                results.write("[red]Usage:[/] /ask <question>")
+                return
+            has_llm = (
+                (self.config.llm_model and self.config.llm_backend in ("mlx", "llama-cpp"))
+                or (self.config.llm_backend == "remote" and self.config.llm_remote_url)
+            )
+            if not has_llm:
+                results.write(
+                    "[yellow]No LLM configured.[/] "
+                    "Use [cyan]/config llm <model-id>[/] for a local model or "
+                    "[cyan]/config llm remote <url>[/] for a remote endpoint."
+                )
+                return
+            context = "\n".join(results._buffer)
+            results.clear()
+            results.write_header(f"/ask {args}")
+            self.status.set_running(f"/ask {args}")
+            self._run_ask(args, context)
         elif cmd == "/reset":
             self.push_screen(ConfirmResetModal(), self._on_reset_confirmed)
             return
@@ -535,6 +663,58 @@ class TrawlerApp(App):
         self.call_from_thread(self.status.set_done, f"/semantic — {count} {noun}")
 
     @work(thread=True)
+    def _run_ask(self, question: str, context: str) -> None:
+        import time
+        from .search.local_llm import ask as llm_ask, ensure_model_cached
+
+        results = self.query_one(ResultsPanel)
+        cmd_bar = self.query_one(CommandBar)
+        self.call_from_thread(cmd_bar.set_busy, True)
+        self.call_from_thread(results.start_stream)
+
+        try:
+            # --- download phase (mlx only; no-op for llama-cpp / remote) ---
+            if self.config.llm_backend == "mlx" and self.config.llm_model:
+                def on_download(text: str) -> None:
+                    self.call_from_thread(results.update_stream, text)
+
+                ready, err = ensure_model_cached(self.config.llm_model, on_download)
+                if not ready:
+                    self.call_from_thread(results.end_stream, "")
+                    if err:
+                        for line in err.splitlines():
+                            self.call_from_thread(results.write, line)
+                    self.call_from_thread(self.status.set_error, "Model download failed")
+                    return
+
+            # --- inference / streaming phase ---
+            accumulated = ""
+            last_repaint = 0.0
+            REPAINT_INTERVAL = 0.05  # max 20 repaints/sec
+
+            for token in llm_ask(question, context, self.config):
+                if token.startswith("["):
+                    # Meta message (loading notice, error) — commit current stream
+                    # then write to log so it doesn't get swallowed
+                    self.call_from_thread(results.update_stream, token)
+                else:
+                    accumulated += token
+                    now = time.monotonic()
+                    if now - last_repaint >= REPAINT_INTERVAL:
+                        self.call_from_thread(results.update_stream, accumulated)
+                        last_repaint = now
+
+            self.call_from_thread(results.end_stream, accumulated)
+            self.call_from_thread(self.status.set_done, "/ask complete")
+        except Exception as e:
+            from rich.markup import escape
+            self.call_from_thread(results.end_stream, "")
+            self.call_from_thread(results.write, f"[red]Error:[/] {escape(str(e))}")
+            self.call_from_thread(self.status.set_error, "/ask failed")
+        finally:
+            self.call_from_thread(cmd_bar.set_busy, False)
+
+    @work(thread=True)
     def _run_index(self) -> None:
         import threading
         import time
@@ -547,7 +727,7 @@ class TrawlerApp(App):
 
         if not self.config.directories:
             self.call_from_thread(
-                self.status.set_error, "No directories configured — use /config add <path>"
+                self.status.set_error, "No directories configured — use /config path add <path>"
             )
             return
 
@@ -662,35 +842,53 @@ class TrawlerApp(App):
             results.write("  " + "  ".join(f"[dim]{e}[/]" for e in sorted(skipped)) if skipped else "  [dim]none[/]")
             results.write("")
             results.write("[bold]Commands:[/]")
-            results.write("  [cyan]/config add <path>[/]         — add a watched directory")
-            results.write("  [cyan]/config rm <path>[/]          — remove a watched directory")
-            results.write("  [cyan]/config filesize <value>[/]   — set max file size (e.g. 500KB, 2MB, 0=unlimited)")
-            results.write("  [cyan]/config ext list[/]           — show extension whitelist & skiplist")
-            results.write("  [cyan]/config ext add <.ext>[/]     — whitelist an extension")
-            results.write("  [cyan]/config ext rm <.ext>[/]      — move extension to skiplist")
-            results.write("  [cyan]/config ext reset[/]          — reset extensions to defaults")
-            results.write("  [cyan]/config rules <path>[/]       — set custom YARA rules directory")
-            results.write("  [cyan]/config rules reset[/]        — revert to bundled rules directory")
-            results.write("  [cyan]/config proxy <url>[/]        — set HTTP/HTTPS proxy (e.g. http://proxy:8080)")
-            results.write("  [cyan]/config proxy reset[/]        — clear proxy setting")
+            results.write("  [cyan]/config path[/]             — manage watched directories")
+            results.write("  [cyan]/config filesize <value>[/] — set max file size (e.g. 500KB, 2MB, 0=unlimited)")
+            results.write("  [cyan]/config ext[/]              — manage file extension filters")
+            results.write("  [cyan]/config rules[/]            — set custom YARA rules directory")
+            results.write("  [cyan]/config proxy[/]            — set HTTP/HTTPS proxy")
+            results.write("  [cyan]/config llm[/]              — view/configure LLM for /ask")
+            results.write("  [dim]type any subcommand alone for details[/]")
             return
 
-        if sub == "add":
-            if rest:
-                self._add_directory(rest)
-            else:
-                self.status.set_error("/config add — usage: /config add <path>")
+        if sub == "path":
+            path_parts = rest.split(maxsplit=1)
+            path_sub = path_parts[0].lower() if path_parts else ""
+            path_val = path_parts[1].strip() if len(path_parts) > 1 else ""
 
-        elif sub == "rm":
-            if not rest:
-                self.status.set_error("/config rm — usage: /config rm <path>")
-                return
-            if rest in self.config.directories:
-                self.config.remove_directory(rest)
-                self.query_one(DirectorySidebar).refresh_directories()
-                self.status.set_done(f"Removed {rest}")
+            if not path_sub:
+                results.clear()
+                results.write_header("/config path")
+                results.write("[bold]Watched directories:[/]")
+                if self.config.directories:
+                    for d in self.config.directories:
+                        results.write(f"  [cyan]{d}[/]")
+                else:
+                    results.write("  [dim]none configured[/]")
+                results.write("")
+                results.write("[bold]Commands:[/]")
+                results.write("  [cyan]/config path add <path>[/]  — add a watched directory")
+                results.write("  [cyan]/config path rm <path>[/]   — remove a watched directory")
+
+            elif path_sub == "add":
+                if path_val:
+                    self._add_directory(path_val)
+                else:
+                    self.status.set_error("/config path add — usage: /config path add <path>")
+
+            elif path_sub == "rm":
+                if not path_val:
+                    self.status.set_error("/config path rm — usage: /config path rm <path>")
+                    return
+                if path_val in self.config.directories:
+                    self.config.remove_directory(path_val)
+                    self.query_one(DirectorySidebar).refresh_directories()
+                    self.status.set_done(f"Removed {path_val}")
+                else:
+                    self.status.set_error(f"Not found: {path_val}")
+
             else:
-                self.status.set_error(f"Not found: {rest}")
+                self.status.set_error(f"Unknown: /config path {path_sub} — try add, rm")
 
         elif sub == "filesize":
             if not rest:
@@ -712,7 +910,18 @@ class TrawlerApp(App):
             ext_sub = ext_parts[0].lower() if ext_parts else ""
             ext_val = ext_parts[1].strip().lower() if len(ext_parts) > 1 else ""
 
-            if ext_sub == "list" or not ext_sub:
+            if not ext_sub:
+                results.clear()
+                results.write_header("/config ext")
+                results.write("[bold]Manage file extension filters[/]")
+                results.write("")
+                results.write("[bold]Commands:[/]")
+                results.write("  [cyan]/config ext list[/]        — show current index/skip extension lists")
+                results.write("  [cyan]/config ext add <.ext>[/]  — whitelist an extension")
+                results.write("  [cyan]/config ext rm <.ext>[/]   — move extension to skip list")
+                results.write("  [cyan]/config ext reset[/]       — restore default extension lists")
+
+            elif ext_sub == "list":
                 results.clear()
                 results.write_header("/config ext list")
                 exts = self.config.index_extensions
@@ -760,7 +969,14 @@ class TrawlerApp(App):
 
         elif sub == "proxy":
             if not rest:
-                self.status.set_error("/config proxy — usage: /config proxy <url> | reset")
+                results.clear()
+                results.write_header("/config proxy")
+                proxy_str = f"[dim]{self.config.proxy}[/]" if self.config.proxy else "[dim]none[/]"
+                results.write(f"  Current proxy:  {proxy_str}")
+                results.write("")
+                results.write("[bold]Commands:[/]")
+                results.write("  [cyan]/config proxy <url>[/]   — set HTTP/HTTPS proxy (e.g. http://proxy:8080)")
+                results.write("  [cyan]/config proxy reset[/]   — clear proxy setting")
                 return
             if rest.lower() == "reset":
                 self.config.proxy = None
@@ -775,7 +991,15 @@ class TrawlerApp(App):
 
         elif sub == "rules":
             if not rest:
-                self.status.set_error("/config rules — usage: /config rules <path> | reset")
+                results.clear()
+                results.write_header("/config rules")
+                from .search.yara_scan import DEFAULT_RULES_DIR
+                rules_str = self.config.rules_dir if self.config.rules_dir else f"[dim]{DEFAULT_RULES_DIR} (default)[/]"
+                results.write(f"  Current rules dir:  {rules_str}")
+                results.write("")
+                results.write("[bold]Commands:[/]")
+                results.write("  [cyan]/config rules <path>[/]   — set custom YARA rules directory")
+                results.write("  [cyan]/config rules reset[/]    — revert to bundled rules directory")
                 return
             if rest.lower() == "reset":
                 self.config.rules_dir = None
@@ -790,8 +1014,125 @@ class TrawlerApp(App):
                 self.config.save()
                 self.status.set_done(f"YARA rules directory set to {rest}")
 
+        elif sub == "llm":
+            self._handle_config_llm(rest, results)
+
         else:
             self.status.set_error(f"Unknown subcommand: /config {sub} — type /config for help")
+
+    def _handle_config_llm(self, args: str, results) -> None:
+        """Handle /config llm <subcommand>."""
+        llm_parts = args.split(maxsplit=1)
+        llm_sub = llm_parts[0].lower() if llm_parts else ""
+        llm_rest = llm_parts[1].strip() if len(llm_parts) > 1 else ""
+
+        if not llm_sub:
+            # Show current LLM config
+            results.clear()
+            results.write_header("/config llm")
+            backend = self.config.llm_backend
+            model = self.config.llm_model or "[dim]none[/]"
+            remote_url = self.config.llm_remote_url or "[dim]none[/]"
+            api_key = "***" if self.config.llm_remote_api_key else "[dim]none[/]"
+            results.write(f"  Backend:     [cyan]{backend}[/]")
+            results.write(f"  Model:       {model}")
+            results.write(f"  Remote URL:  {remote_url}")
+            results.write(f"  API key:     {api_key}")
+            results.write(f"  Context:     {self.config.llm_context_tokens} tokens")
+            sys_prompt = self.config.llm_system_prompt
+            sys_display = f"[dim]{sys_prompt[:60]}{'…' if len(sys_prompt) > 60 else ''}[/]" if sys_prompt else "[dim]none[/]"
+            results.write(f"  Sys prompt:  {sys_display}")
+            results.write("")
+            results.write("[bold]Local — Apple Silicon (mlx-lm):[/]")
+            results.write("  [cyan]/config llm mlx <hf-repo-id>[/]")
+            results.write("  [dim]e.g. mlx-community/Mistral-7B-Instruct-v0.2-4bit[/]")
+            results.write("  [dim]Downloaded automatically to ~/.cache/huggingface/hub/[/]")
+            results.write("")
+            results.write("[bold]Local — cross-platform (llama-cpp GGUF):[/]")
+            results.write("  [cyan]/config llm gguf <path-to-.gguf>[/]")
+            results.write("  [dim]e.g. ~/models/mistral-7b-instruct-v0.2.Q4_K_M.gguf[/]")
+            results.write("  [dim]Get GGUF files: huggingface.co/bartowski  or  huggingface.co/TheBloke[/]")
+            results.write("")
+            results.write("[bold]Remote (any OpenAI-compatible endpoint):[/]")
+            results.write("  [cyan]/config llm remote <url>[/]             — base URL (e.g. http://localhost:11434/v1)")
+            results.write("  [cyan]/config llm remote <url> <model>[/]     — with model name")
+            results.write("  [cyan]/config llm apikey <key>[/]             — API key if required")
+            results.write("")
+            results.write("[bold]Other:[/]")
+            results.write("  [cyan]/config llm systemprompt <text>[/]      — set system prompt")
+            results.write("  [cyan]/config llm systemprompt reset[/]       — remove system prompt")
+            results.write("  [cyan]/config llm reset[/]                    — disable LLM")
+            return
+
+        if llm_sub == "reset":
+            self.config.llm_model = None
+            self.config.llm_remote_url = None
+            self.config.llm_remote_api_key = None
+            self.config.llm_backend = "mlx"
+            self.config.save()
+            self.status.set_done("LLM disabled")
+
+        elif llm_sub == "remote":
+            if not llm_rest:
+                self.status.set_error("/config llm remote — usage: /config llm remote <url> [<model>]")
+                return
+            url_parts = llm_rest.split(maxsplit=1)
+            self.config.llm_remote_url = url_parts[0]
+            if len(url_parts) > 1:
+                self.config.llm_model = url_parts[1]
+            self.config.llm_backend = "remote"
+            self.config.save()
+            model_info = f" (model: {self.config.llm_model})" if self.config.llm_model else ""
+            self.status.set_done(f"Remote LLM set to {self.config.llm_remote_url}{model_info}")
+
+        elif llm_sub == "apikey":
+            if not llm_rest:
+                self.status.set_error("/config llm apikey — usage: /config llm apikey <key>")
+                return
+            self.config.llm_remote_api_key = llm_rest
+            self.config.save()
+            self.status.set_done("API key saved")
+
+        elif llm_sub == "systemprompt":
+            if not llm_rest:
+                self.status.set_error("/config llm systemprompt — usage: /config llm systemprompt <text> | reset")
+                return
+            if llm_rest.lower() == "reset":
+                self.config.llm_system_prompt = None
+                self.config.save()
+                self.status.set_done("System prompt cleared")
+            else:
+                self.config.llm_system_prompt = llm_rest
+                self.config.save()
+                self.status.set_done("System prompt set")
+
+        elif llm_sub == "mlx":
+            if not llm_rest:
+                self.status.set_error("/config llm mlx — usage: /config llm mlx <hf-repo-id>")
+                return
+            self.config.llm_model = llm_rest
+            self.config.llm_backend = "mlx"
+            self.config.save()
+            self.status.set_done(f"MLX model set to {llm_rest} (downloads on first /ask)")
+
+        elif llm_sub == "gguf":
+            if not llm_rest:
+                self.status.set_error("/config llm gguf — usage: /config llm gguf <path-to-.gguf>")
+                return
+            from pathlib import Path
+            p = Path(llm_rest).expanduser()
+            if not p.exists():
+                self.status.set_error(f"File not found: {p}")
+                return
+            self.config.llm_model = str(p)
+            self.config.llm_backend = "llama-cpp"
+            self.config.save()
+            self.status.set_done(f"GGUF model set to {p.name}")
+
+        else:
+            self.status.set_error(
+                f"Unknown: /config llm {llm_sub} — try mlx, gguf, remote, apikey, systemprompt, reset"
+            )
 
     def _check_extensions_then_index(self) -> None:
         self.status.set_running("/index — scanning file types…")

@@ -1,6 +1,6 @@
 # Trawler
 
-### A terminal TUI for triaging data dumps — drop files in a directory, search them fast, escalate what matters.
+### A terminal TUI for triaging data dumps — drop files in a directory, search them fast, ask an LLM what it means.
 
 Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and semantic vector searches across breach data, leaks, and other unstructured dumps — without standing up any infrastructure.
 
@@ -9,11 +9,13 @@ Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and s
 ## Features
 
 - **Regex search** — line-by-line pattern matching across all files
-- **Ripgrep** — fast full-text search with ripgrep flags
+- **Ripgrep** — fast full-text search with full ripgrep flag support
 - **YARA rules** — scan files against rules in `src/trawler/rules/`
 - **Semantic search** — vector similarity search via ChromaDB + sentence-transformers (local, no API key)
+- **LLM `/ask`** — ask a local or remote LLM questions about the current results panel; streams tokens as they arrive
 - **Incremental indexing** — only re-embeds files that have changed since the last run
 - **File type & size filtering** — skip binary, structured, or oversized files before indexing
+- **Progressive command help** — type any command or subcommand alone to see what's available at that level
 - **Tab path completion** — complete directory paths directly in the command bar
 - **Clipboard export** — `ctrl+y` copies all results to clipboard
 
@@ -35,6 +37,13 @@ cd trawler
 uv sync
 ```
 
+For local LLM support (optional):
+
+```bash
+uv sync --extra llm        # Apple Silicon (mlx-lm)
+uv sync --extra llm-cpu    # cross-platform (llama-cpp-python)
+```
+
 ---
 
 ## Running
@@ -52,30 +61,52 @@ uv run python main.py
 | Command | Description |
 |---------|-------------|
 | `/search <pattern>` | Regex search across all configured directories |
-| `/rg [opts] <pattern>` | Ripgrep search (supports `-i`, `-m` flags) |
+| `/rg [opts] <pattern>` | Ripgrep search (supports `-i`, `-m`, and all other rg flags) |
 | `/yara [rule-glob]` | Run YARA rules; glob filters by rule name (e.g. `email*`) |
 | `/semantic <query> [--dir <path>]` | Vector similarity search; `--dir` filters to one directory |
 | `/index` | Embed and index configured directories into ChromaDB |
+| `/ask <question>` | Ask a local or remote LLM about the current results panel |
 | `/config [subcommand]` | Manage configuration — run with no args to see all options |
 | `/reset` | Wipe the vector store and indexing history (requires confirmation) |
-| `/help` | Show command reference |
+| `/help [command]` | Show help for a command or the full reference |
 | `/exit` | Quit |
+
+### Progressive help
+
+Every command and subcommand shows its own help when typed alone:
+
+```
+/config          → shows config subcommands
+/config ext      → shows ext subcommands
+/config llm      → shows LLM config with current values
+/help rg         → shows ripgrep usage
+```
 
 ### Config subcommands
 
 ```
-/config                        show full configuration summary
-/config add <path>             add a watched directory (Tab completes the path)
-/config rm <path>              remove a watched directory
-/config filesize <value>       set max file size for indexing (e.g. 500KB, 2MB, 0=unlimited)
-/config ext list               show extension whitelist and skiplist
-/config ext add <.ext>         whitelist an extension for indexing
-/config ext rm <.ext>          move an extension to the skiplist
-/config ext reset              reset extensions to defaults
-/config rules <path>           set a custom YARA rules directory
-/config rules reset            revert to the bundled rules directory
-/config proxy <url>            set HTTP/HTTPS proxy (e.g. http://proxy.corp.com:8080)
-/config proxy reset            clear proxy setting
+/config                               show full configuration summary
+/config path                          manage watched directories
+/config path add <path>               add a watched directory (Tab completes the path)
+/config path rm <path>                remove a watched directory
+/config filesize <value>              set max file size for indexing (e.g. 500KB, 2MB, 0=unlimited)
+/config ext                           manage file extension filters
+/config ext list                      show extension whitelist and skiplist
+/config ext add <.ext>                whitelist an extension for indexing
+/config ext rm <.ext>                 move an extension to the skiplist
+/config ext reset                     reset extensions to defaults
+/config rules <path>                  set a custom YARA rules directory
+/config rules reset                   revert to the bundled rules directory
+/config proxy <url>                   set HTTP/HTTPS proxy
+/config proxy reset                   clear proxy setting
+/config llm                           view LLM configuration and available commands
+/config llm mlx <hf-repo-id>          Apple Silicon local model (auto-downloaded)
+/config llm gguf <path>               cross-platform local model (local .gguf file)
+/config llm remote <url> [<model>]    remote OpenAI-compatible endpoint
+/config llm apikey <key>              API key for remote endpoint
+/config llm systemprompt <text>       set a system prompt (none by default)
+/config llm systemprompt reset        remove system prompt
+/config llm reset                     disable LLM
 ```
 
 ### Keyboard shortcuts
@@ -104,6 +135,62 @@ Config is stored at `.trawler/config.toml` relative to your working directory. A
 ### Default skipped extensions
 
 Binary, structured data, archives, images, audio, video — everything that won't yield useful semantic content.
+
+---
+
+## LLM Integration (`/ask`)
+
+`/ask` sends the current results panel as context to a local or remote LLM and streams the response back token-by-token. The command bar is disabled while the LLM is responding.
+
+No system prompt is sent by default. The LLM sees only the question and your results as context, without any role-framing that might colour its answers.
+
+### Option 1 — Apple Silicon (mlx-lm)
+
+Models are downloaded automatically from HuggingFace on first use and cached in `~/.cache/huggingface/hub/`. Download progress is shown in-panel with per-file progress bars.
+
+```
+/config llm mlx mlx-community/Mistral-7B-Instruct-v0.2-4bit
+```
+
+Requires `uv sync --extra llm`. Apple Silicon only.
+
+### Option 2 — Cross-platform (llama-cpp GGUF)
+
+Point at a local `.gguf` file. You manage the download yourself.
+
+```
+/config llm gguf ~/models/mistral-7b-instruct-v0.2.Q4_K_M.gguf
+```
+
+Get GGUF files from [huggingface.co/bartowski](https://huggingface.co/bartowski) or [huggingface.co/TheBloke](https://huggingface.co/TheBloke). Requires `uv sync --extra llm-cpu`.
+
+### Option 3 — Remote endpoint (recommended for most setups)
+
+Any OpenAI-compatible API — [Ollama](https://ollama.com), LM Studio, vLLM, llama.cpp server, or actual OpenAI.
+
+```
+/config llm remote http://localhost:11434/v1 mistral
+/config llm apikey sk-...    # if required
+```
+
+No local model download, no extra dependencies. Tokens stream as they arrive from the remote host.
+
+### System prompt
+
+No system prompt is set by default. Add one if you want to constrain the model's behavior:
+
+```
+/config llm systemprompt You are a triage analyst. Answer only from the provided results.
+/config llm systemprompt reset
+```
+
+### Memory requirements (4-bit quantized local models)
+
+| Model size | RAM needed |
+|------------|------------|
+| 7B | ~4–5 GB |
+| 13B | ~8–10 GB |
+| 30B+ | 15+ GB |
 
 ---
 
@@ -138,7 +225,7 @@ Semantic search uses [sentence-transformers](https://www.sbert.net/) to embed fi
 
 **When to use it**: semantic search is best for natural language content (emails, logs, notes). It is not well-suited for structured data (JSON, CSV, SQL) — use `/rg` for those.
 
-**Indexing**: run `/index` to embed your directories. Re-running is incremental — only changed files are re-embedded. Indexing large directories will take time on first run; subsequent runs are fast.
+**Indexing**: run `/index` to embed your directories. Re-running is incremental — only changed files are re-embedded.
 
 ---
 
@@ -151,19 +238,7 @@ If you're behind a corporate proxy, set it once and it persists across sessions:
 /config proxy reset    # clear it
 ```
 
-This sets `HTTP_PROXY` and `HTTPS_PROXY` in the running process, which is picked up by `requests`, `huggingface_hub`, and `sentence-transformers` when downloading the embedding model or making any outbound requests.
-
-The proxy is applied automatically on startup if one is configured.
-
-### Forcing a model re-download
-
-To test proxy behaviour or recover from a corrupted download, delete the cached model:
-
-```bash
-rm -rf ~/.cache/huggingface/hub/models--sentence-transformers--all-MiniLM-L6-v2
-```
-
-The next `/index` run will re-download it through the configured proxy.
+This sets `HTTP_PROXY` and `HTTPS_PROXY` in the running process, which is picked up by `requests`, `huggingface_hub`, `sentence-transformers`, and the remote LLM backend.
 
 ---
 
@@ -177,7 +252,7 @@ uv sync
 uv run pytest
 
 # Run a single test
-uv run pytest tests/test_config.py::test_save_load_roundtrip
+uv run pytest tests/test_config.py::test_llm_roundtrip
 
 # Launch the TUI
 uv run python main.py
@@ -189,7 +264,7 @@ uv run python main.py
 
 ```
 src/trawler/
-├── app.py              # TrawlerApp — main Textual application
+├── app.py              # TrawlerApp — main Textual application + COMMAND_TREE
 ├── config.py           # TrawlerConfig — TOML-backed settings
 ├── index_state.py      # IndexState — tracks which files are embedded
 ├── rules/              # YARA rule files (.yar / .yara)
@@ -197,10 +272,11 @@ src/trawler/
 │   ├── basic.py        # Regex line search
 │   ├── ripgrep.py      # python-ripgrep wrapper
 │   ├── yara_scan.py    # YARA scanning backend
-│   └── semantic.py     # LangChain + ChromaDB vector search
+│   ├── semantic.py     # LangChain + ChromaDB vector search
+│   └── local_llm.py    # Local (mlx / llama-cpp) and remote LLM backend
 └── widgets/
     ├── command_bar.py  # Input widget with command + path autocomplete
-    ├── results_panel.py# RichLog results display
+    ├── results_panel.py# RichLog results display with streaming Static overlay
     ├── sidebar.py      # Directory list with indexing stats
     └── status_bar.py   # Single-line status indicator
 ```
@@ -209,7 +285,7 @@ Project-local data lives in `.trawler/` (gitignored):
 
 ```
 .trawler/
-├── config.toml         # Settings
+├── config.toml         # Settings (including LLM config)
 ├── index_state.json    # Per-file mtime + size records
 └── chroma/             # ChromaDB vector store
 ```

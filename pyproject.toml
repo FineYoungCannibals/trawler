@@ -11,12 +11,21 @@ dependencies = [
     "langchain-chroma>=0.1",
     "langchain-huggingface>=0.1",
     "langchain-text-splitters>=0.3",
+    "llm>=0.28",
     "python-ripgrep>=0.0.9",
     "sentence-transformers>=3.0",
     "textual[syntax]>=8.0.2",
     "tomli>=2.0",
     "tomli-w>=1.0",
     "yara-python>=4.5.4",
+]
+
+[project.optional-dependencies]
+llm = [
+    "mlx-lm>=0.22",
+]
+llm-cpu = [
+    "llama-cpp-python",
 ]
 
 [dependency-groups]

@@ -5,7 +5,7 @@ import subprocess
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.widget import Widget
-from textual.widgets import RichLog
+from textual.widgets import RichLog, Static
 
 
 def _strip_markup(text: str) -> str:
@@ -19,9 +19,18 @@ class ResultsPanel(Widget):
     DEFAULT_CSS = """
     ResultsPanel {
         border: solid $primary;
+        layout: vertical;
     }
     ResultsPanel RichLog {
         padding: 0 1;
+        height: 1fr;
+    }
+    ResultsPanel #stream-area {
+        display: none;
+        padding: 0 1;
+        height: auto;
+        max-height: 50%;
+        border-top: solid $primary-darken-3;
     }
     """
 
@@ -31,6 +40,7 @@ class ResultsPanel(Widget):
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="results-log", markup=True, highlight=False, wrap=True)
+        yield Static("", id="stream-area")
 
     def write(self, text: str) -> None:
         self.query_one(RichLog).write(text)
@@ -44,6 +54,26 @@ class ResultsPanel(Widget):
     def clear(self) -> None:
         self.query_one(RichLog).clear()
         self._buffer.clear()
+
+    # ------------------------------------------------------------------
+    # Streaming support for /ask
+    # ------------------------------------------------------------------
+
+    def start_stream(self) -> None:
+        area = self.query_one("#stream-area", Static)
+        area.update("")
+        area.display = True
+
+    def update_stream(self, text: str) -> None:
+        self.query_one("#stream-area", Static).update(Text(text))
+
+    def end_stream(self, final_text: str) -> None:
+        area = self.query_one("#stream-area", Static)
+        area.display = False
+        area.update("")
+        if final_text:
+            self.query_one(RichLog).write(Text(final_text))
+            self._buffer.append(final_text)
 
     def copy_to_clipboard(self) -> bool:
         """Copy all results to clipboard via pbcopy. Returns True on success."""

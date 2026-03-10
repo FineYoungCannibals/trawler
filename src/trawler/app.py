@@ -383,6 +383,7 @@ class TrawlerApp(App):
         self.index_state = IndexState()
         self._indexing = False
         self._stop_index = threading.Event()
+        self._stop_ask = threading.Event()
 
     @staticmethod
     def _apply_proxy(proxy: str | None) -> None:
@@ -423,13 +424,12 @@ class TrawlerApp(App):
     # ------------------------------------------------------------------
 
     def _show_help(self, path: list[str] | None = None) -> None:
-        """Show help. With no path shows home screen; with path walks COMMAND_TREE."""
-        if not path:
-            self._show_home()
-            return
-
+        """Show help. With no path shows the welcome/help screen; with path walks COMMAND_TREE."""
         results = self.query_one(ResultsPanel)
-        results.clear()
+        results.show_utility()
+        if not path:
+            self._write_help_content(results)
+            return
 
         # Normalise first token: "config" → "/config"
         tokens = [t if t.startswith("/") else "/" + t for t in path[:1]] + path[1:]
@@ -472,10 +472,7 @@ class TrawlerApp(App):
             full = header + (f" {args}" if args else "")
             results.write(f"  [cyan]{full}[/]")
 
-    def _show_home(self) -> None:
-        results = self.query_one(ResultsPanel)
-        self.status._reset()
-        results.clear()
+    def _write_help_content(self, results) -> None:
         results.write("[cyan]              |                                   [/]")
         results.write("[cyan]             _|_                                  [/]")
         results.write("[cyan]            |   |                                 [/]")
@@ -516,12 +513,27 @@ class TrawlerApp(App):
         results.write("  [dim]Windows Terminal[/]    — [cyan]Shift+drag[/]")
         results.write("  [dim]Linux (most)[/]        — [cyan]Shift+drag[/]  or middle-click to paste")
 
+    def _show_home(self) -> None:
+        results = self.query_one(ResultsPanel)
+        self.status._reset()
+        results.show_search()
+        if results._buffer:
+            return
+        results.clear()
+        self._write_help_content(results)
+
+    def _stop_workers(self) -> None:
+        """Signal all background workers to stop."""
+        self._stop_index.set()
+        self._stop_ask.set()
+
     def action_quit(self) -> None:
         if self._indexing:
             self._stop_index.set()
             self._indexing = False
             self.status.set_info("Stopping after current batch… (Ctrl+C again to force quit)")
         else:
+            self._stop_workers()
             self.exit()
 
     def action_focus_command(self) -> None:
@@ -538,7 +550,7 @@ class TrawlerApp(App):
 
     def _dispatch_command(self, text: str) -> None:
         if not text:
-            self._show_help()
+            self._show_home()
             return
 
         parts = text.split(maxsplit=1)
@@ -549,6 +561,7 @@ class TrawlerApp(App):
             self._show_help(args.split() if args else None)
             return
         if cmd in ("/exit", "/quit"):
+            self._stop_workers()
             self.exit()
             return
 
@@ -710,6 +723,7 @@ class TrawlerApp(App):
         import time
         from .search.local_llm import ask as llm_ask, ensure_model_cached
 
+        self._stop_ask.clear()
         results = self.query_one(ResultsPanel)
         cmd_bar = self.query_one(CommandBar)
         self.call_from_thread(cmd_bar.set_busy, True)
@@ -722,12 +736,13 @@ class TrawlerApp(App):
                     self.call_from_thread(results.update_stream, text)
 
                 ready, err = ensure_model_cached(self.config.llm_model, on_download)
-                if not ready:
+                if not ready or self._stop_ask.is_set():
                     self.call_from_thread(results.end_stream, "")
                     if err:
                         for line in err.splitlines():
                             self.call_from_thread(results.write, line)
-                    self.call_from_thread(self.status.set_error, "Model download failed")
+                    if not self._stop_ask.is_set():
+                        self.call_from_thread(self.status.set_error, "Model download failed")
                     return
 
             # --- inference / streaming phase ---
@@ -737,6 +752,8 @@ class TrawlerApp(App):
             REPAINT_INTERVAL = 0.05  # max 20 repaints/sec
 
             for token in llm_ask(question, context, self.config):
+                if self._stop_ask.is_set():
+                    break
                 if token.startswith("["):
                     # Error or status message — write directly to the persistent
                     # log so it isn't lost when the streaming overlay closes.
@@ -855,7 +872,7 @@ class TrawlerApp(App):
 
         # /config or /config list — show full summary
         if not sub or sub == "list":
-            results.clear()
+            results.show_utility()
             results.write_header("/config")
             results.write("[bold]Directories:[/]")
             if self.config.directories:
@@ -904,7 +921,7 @@ class TrawlerApp(App):
             path_val = path_parts[1].strip() if len(path_parts) > 1 else ""
 
             if not path_sub:
-                results.clear()
+                results.show_utility()
                 results.write_header("/config path")
                 results.write("[bold]Watched directories:[/]")
                 if self.config.directories:
@@ -968,7 +985,7 @@ class TrawlerApp(App):
             ext_val = ext_parts[1].strip().lower() if len(ext_parts) > 1 else ""
 
             if not ext_sub:
-                results.clear()
+                results.show_utility()
                 results.write_header("/config ext")
                 results.write("[bold]Manage file extension filters[/]")
                 results.write("")
@@ -979,7 +996,7 @@ class TrawlerApp(App):
                 results.write("  [cyan]/config ext reset[/]       — restore default extension lists")
 
             elif ext_sub == "list":
-                results.clear()
+                results.show_utility()
                 results.write_header("/config ext list")
                 exts = self.config.index_extensions
                 results.write(f"[bold]Indexed ({len(exts)}):[/]")
@@ -1026,7 +1043,7 @@ class TrawlerApp(App):
 
         elif sub == "proxy":
             if not rest:
-                results.clear()
+                results.show_utility()
                 results.write_header("/config proxy")
                 proxy_str = f"[dim]{self.config.proxy}[/]" if self.config.proxy else "[dim]none[/]"
                 results.write(f"  Current proxy:  {proxy_str}")
@@ -1048,7 +1065,7 @@ class TrawlerApp(App):
 
         elif sub == "rules":
             if not rest:
-                results.clear()
+                results.show_utility()
                 results.write_header("/config rules")
                 from .search.yara_scan import DEFAULT_RULES_DIR
                 rules_str = self.config.rules_dir if self.config.rules_dir else f"[dim]{DEFAULT_RULES_DIR} (default)[/]"
@@ -1085,7 +1102,7 @@ class TrawlerApp(App):
 
         if not llm_sub:
             # Show current LLM config
-            results.clear()
+            results.show_utility()
             results.write_header("/config llm")
             backend = self.config.llm_backend
             model = self.config.llm_model or "[dim]none[/]"

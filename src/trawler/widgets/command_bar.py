@@ -43,51 +43,95 @@ COMMANDS = [
 ]
 
 _PATH_PREFIX = "/config path add "
+_RM_PREFIX = "/config path rm "
+_DIR_FLAG = " --dir "
+
+
+def _complete_fs_path(path_part: str) -> str | None:
+    """Return a completed filesystem path for *path_part*, or None.
+
+    Appends '/' to completed directory names so the user can keep tabbing
+    deeper without needing to type the separator themselves.
+    """
+    if not path_part:
+        return None
+    p = Path(path_part)
+    try:
+        sep = "/" if not path_part.startswith("\\") else "\\"
+        if path_part.endswith(("/", "\\")) and p.is_dir():
+            # Completed dir — suggest first child
+            children = sorted(
+                d.name for d in p.iterdir()
+                if d.is_dir() and not d.name.startswith(".")
+            )
+            if not children:
+                return None
+            return path_part + children[0] + sep
+        else:
+            # Partial name — complete against siblings
+            parent = p.parent
+            name_prefix = p.name
+            children = sorted(
+                d.name for d in parent.iterdir()
+                if d.is_dir()
+                and d.name.startswith(name_prefix)
+                and d.name != name_prefix
+                and not (not name_prefix and d.name.startswith("."))
+            )
+            if not children:
+                return None
+            return str(parent / children[0]) + sep
+    except (PermissionError, OSError):
+        return None
 
 
 class CommandSuggester(Suggester):
-    """Command completion, with path completion after '/config add '."""
+    """Command completion with path completion for add/rm/--dir args."""
 
-    def __init__(self) -> None:
+    def __init__(self, get_dirs=None) -> None:
         # case_sensitive=True so get_suggestion receives the original value
         # unchanged — critical for correct path operations on case-sensitive
         # or symlinked filesystems (e.g. macOS /Users vs /users).
         super().__init__(use_cache=False, case_sensitive=True)
+        # Optional callable returning the list of configured directories,
+        # used to autocomplete '/config path rm <partial-path>'.
+        self._get_dirs = get_dirs
 
     async def get_suggestion(self, value: str) -> str | None:
+        # --- /config path rm: complete from configured dirs ---------------
+        if value.lower().startswith(_RM_PREFIX.lower()) and self._get_dirs:
+            typed = value[len(_RM_PREFIX):]
+            try:
+                dirs = self._get_dirs()
+            except Exception:
+                dirs = []
+            for d in dirs:
+                if d.startswith(typed) and d != typed:
+                    return _RM_PREFIX + d
+            return None
+
+        # --- /config path add: filesystem completion ----------------------
         if value.lower().startswith(_PATH_PREFIX.lower()):
             path_part = value[len(_PATH_PREFIX):]
-            if not path_part:
+            completed = _complete_fs_path(path_part)
+            if completed is None:
                 return None
-            p = Path(path_part)
-            try:
-                if path_part.endswith("/") and p.is_dir():
-                    # Completed dir — suggest first child
-                    children = sorted(
-                        d.name for d in p.iterdir()
-                        if d.is_dir() and not d.name.startswith(".")
-                    )
-                    if not children:
-                        return None
-                    return _PATH_PREFIX + path_part + children[0] + "/"
-                else:
-                    # Partial name — complete against siblings
-                    parent = p.parent
-                    name_prefix = p.name
-                    children = sorted(
-                        d.name for d in parent.iterdir()
-                        if d.is_dir()
-                        and d.name.startswith(name_prefix)
-                        and d.name != name_prefix
-                        and not (not name_prefix and d.name.startswith("."))
-                    )
-                    if not children:
-                        return None
-                    return _PATH_PREFIX + str(parent / children[0]) + "/"
-            except (PermissionError, OSError):
-                return None
+            return _PATH_PREFIX + completed
 
+        # --- --dir <path>: filesystem completion (any search command) -----
+        # Find the last occurrence of " --dir " in the typed value so that
+        # completion works regardless of what comes before the flag.
         lower = value.lower()
+        dir_flag_pos = lower.rfind(_DIR_FLAG.lower())
+        if dir_flag_pos != -1:
+            prefix = value[:dir_flag_pos + len(_DIR_FLAG)]
+            path_part = value[len(prefix):]
+            completed = _complete_fs_path(path_part)
+            if completed is None:
+                return None
+            return prefix + completed
+
+        # --- command keyword completion ------------------------------------
         for cmd in COMMANDS:
             if cmd.startswith(lower) and cmd != lower:
                 # Never return a suggestion whose ghost text starts with a space.
@@ -129,13 +173,25 @@ class CommandBar(Widget):
             super().__init__()
             self.text = text
 
+    def on_mount(self) -> None:
+        self._history: list[str] = []
+        self._history_idx: int = 0   # points one past the end when not navigating
+        self._draft: str = ""         # preserves in-progress text during history nav
+
+    def _get_config_dirs(self) -> list[str]:
+        """Return configured directories for rm autocomplete."""
+        try:
+            return list(self.app.config.directories)  # type: ignore[attr-defined]
+        except Exception:
+            return []
+
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield Label(">")
             yield Input(
                 placeholder="/search  /rg  /yara  /semantic  /index  /ask  /config  /help  /exit",
                 id="cmd-input",
-                suggester=CommandSuggester(),
+                suggester=CommandSuggester(get_dirs=self._get_config_dirs),
             )
 
     def on_key(self, event) -> None:
@@ -152,9 +208,39 @@ class CommandBar(Widget):
             event.prevent_default()
             event.stop()
             inp.insert_text_at_cursor(" ")
+        elif event.key == "up":
+            if not self._history:
+                return
+            event.prevent_default()
+            event.stop()
+            # Save whatever the user has typed before entering history nav
+            if self._history_idx == len(self._history):
+                self._draft = inp.value
+            if self._history_idx > 0:
+                self._history_idx -= 1
+                inp.value = self._history[self._history_idx]
+                inp.cursor_position = len(inp.value)
+        elif event.key == "down":
+            if self._history_idx >= len(self._history):
+                return
+            event.prevent_default()
+            event.stop()
+            self._history_idx += 1
+            if self._history_idx == len(self._history):
+                inp.value = self._draft
+            else:
+                inp.value = self._history[self._history_idx]
+            inp.cursor_position = len(inp.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        self.post_message(self.Submitted(event.value.strip()))
+        text = event.value.strip()
+        if text:
+            # Skip consecutive duplicates (like bash HISTCONTROL=ignoredups)
+            if not self._history or self._history[-1] != text:
+                self._history.append(text)
+        self._history_idx = len(self._history)
+        self._draft = ""
+        self.post_message(self.Submitted(text))
         event.input.value = ""
 
     def focus_input(self) -> None:

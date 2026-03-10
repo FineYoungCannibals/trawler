@@ -13,10 +13,12 @@ Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and s
 - **YARA rules** — scan files against rules in `src/trawler/rules/`
 - **Semantic search** — vector similarity search via ChromaDB + sentence-transformers (local, no API key)
 - **LLM `/ask`** — ask a local or remote LLM questions about the current results panel; streams tokens as they arrive
+- **Directory scoping** — add `--dir <path>` to any search command to restrict results to one directory
 - **Incremental indexing** — only re-embeds files that have changed since the last run
 - **File type & size filtering** — skip binary, structured, or oversized files before indexing
 - **Progressive command help** — type any command or subcommand alone to see what's available at that level
-- **Tab path completion** — complete directory paths directly in the command bar
+- **Tab path completion** — complete directory paths in the command bar, including `--dir` arguments
+- **Command history** — up/down arrows cycle through previous commands, shell-style
 - **Clipboard export** — `ctrl+y` copies all results to clipboard
 
 ---
@@ -60,9 +62,9 @@ uv run python main.py
 
 | Command | Description |
 |---------|-------------|
-| `/search <pattern>` | Regex search across all configured directories |
-| `/rg [opts] <pattern>` | Ripgrep search (supports `-i`, `-m`, and all other rg flags) |
-| `/yara [rule-glob]` | Run YARA rules; glob filters by rule name (e.g. `email*`) |
+| `/search <pattern> [--dir <path>]` | Regex search across all configured directories |
+| `/rg [opts] <pattern> [--dir <path>]` | Ripgrep search (supports `-i`, `-m`, and all other rg flags) |
+| `/yara [rule-glob] [--dir <path>]` | Run YARA rules; glob filters by rule name (e.g. `email*`) |
 | `/semantic <query> [--dir <path>]` | Vector similarity search; `--dir` filters to one directory |
 | `/index` | Embed and index configured directories into ChromaDB |
 | `/ask <question>` | Ask a local or remote LLM about the current results panel |
@@ -70,6 +72,19 @@ uv run python main.py
 | `/reset` | Wipe the vector store and indexing history (requires confirmation) |
 | `/help [command]` | Show help for a command or the full reference |
 | `/exit` | Quit |
+
+### Directory scoping
+
+All four search commands accept an optional `--dir <path>` flag to restrict the search to a single directory. The path can be any directory on disk — not just a configured one, so you can drill into subdirectories freely.
+
+```
+/search password --dir /data/breach2/
+/rg -i email --dir /data/drops/2024/
+/yara email* --dir /data/breach2/
+/semantic login credentials --dir /data/drops/
+```
+
+Typing `--dir ` and pressing Tab completes filesystem paths the same way `/config path add` does.
 
 ### Progressive help
 
@@ -88,7 +103,7 @@ Every command and subcommand shows its own help when typed alone:
 /config                               show full configuration summary
 /config path                          manage watched directories
 /config path add <path>               add a watched directory (Tab completes the path)
-/config path rm <path>                remove a watched directory
+/config path rm <n|path>              remove a watched directory by number or full path
 /config filesize <value>              set max file size for indexing (e.g. 500KB, 2MB, 0=unlimited)
 /config ext                           manage file extension filters
 /config ext list                      show extension whitelist and skiplist
@@ -114,6 +129,7 @@ Every command and subcommand shows its own help when typed alone:
 | Key | Action |
 |-----|--------|
 | `Tab` | Accept autocomplete suggestion |
+| `↑` / `↓` | Cycle through command history |
 | `ctrl+y` | Copy results to clipboard |
 | `ctrl+c` | Quit (or cancel indexing if running) |
 | `Enter` (empty input) | Return to home screen |

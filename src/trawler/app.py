@@ -551,9 +551,36 @@ class TrawlerApp(App):
             self._handle_config(args)
             return
 
-        # All search/index commands clear results and show a running indicator
+        # All search/index commands append to the scrollback and show a running indicator
         results = self.query_one(ResultsPanel)
-        results.clear()
+
+        if cmd == "/ask":
+            if not args:
+                results.mark_command_start()
+                results.write_header(text)
+                results.write("[red]Usage:[/] /ask <question>")
+                return
+            has_llm = (
+                (self.config.llm_model and self.config.llm_backend in ("mlx", "llama-cpp"))
+                or (self.config.llm_backend == "remote" and self.config.llm_remote_url)
+            )
+            if not has_llm:
+                results.mark_command_start()
+                results.write_header(text)
+                results.write(
+                    "[yellow]No LLM configured.[/] "
+                    "Use [cyan]/config llm <model-id>[/] for a local model or "
+                    "[cyan]/config llm remote <url>[/] for a remote endpoint."
+                )
+                return
+            context = results.last_command_context()
+            results.mark_command_start()
+            results.write_header(text)
+            self.status.set_running(f"/ask {args}")
+            self._run_ask(args, context)
+            return
+
+        results.mark_command_start()
         results.write_header(text)
 
         if cmd == "/search":
@@ -577,26 +604,6 @@ class TrawlerApp(App):
                 return
             self.status.set_running(f"/semantic {args}")
             self._run_semantic_search(args)
-        elif cmd == "/ask":
-            if not args:
-                results.write("[red]Usage:[/] /ask <question>")
-                return
-            has_llm = (
-                (self.config.llm_model and self.config.llm_backend in ("mlx", "llama-cpp"))
-                or (self.config.llm_backend == "remote" and self.config.llm_remote_url)
-            )
-            if not has_llm:
-                results.write(
-                    "[yellow]No LLM configured.[/] "
-                    "Use [cyan]/config llm <model-id>[/] for a local model or "
-                    "[cyan]/config llm remote <url>[/] for a remote endpoint."
-                )
-                return
-            context = "\n".join(results._buffer)
-            results.clear()
-            results.write_header(f"/ask {args}")
-            self.status.set_running(f"/ask {args}")
-            self._run_ask(args, context)
         elif cmd == "/reset":
             self.push_screen(ConfirmResetModal(), self._on_reset_confirmed)
             return

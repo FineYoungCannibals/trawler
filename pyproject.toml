@@ -3,7 +3,7 @@ name = "trawler"
 version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.13"
 dependencies = [
     "chromadb>=0.5",
     "httpx>=0.28.1",
@@ -21,18 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-llm = [
-    "mlx-lm>=0.22",
-]
-llm-cpu = [
-    "llama-cpp-python",
-]
+llm = ["mlx-lm>=0.22"]
+llm-cpu = ["llama-cpp-python"]
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "textual-dev>=1.8.0",
-]
+dev = ["pytest>=9.0.2", "textual-dev>=1.8.0"]
 
 [build-system]
 requires = ["setuptools>=69", "wheel"]

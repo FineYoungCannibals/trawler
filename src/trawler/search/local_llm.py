@@ -17,6 +17,21 @@ if TYPE_CHECKING:
 # Module-level cache so the model is not reloaded between /ask calls
 _llm_cache: dict[str, object] = {}
 
+
+def _detect_backend() -> str | None:
+    """Return the best available local backend, or None if neither is installed."""
+    try:
+        import mlx_lm  # noqa: F401
+        return "mlx"
+    except ImportError:
+        pass
+    try:
+        import llama_cpp  # noqa: F401
+        return "llama-cpp"
+    except ImportError:
+        pass
+    return None
+
 _BAR_WIDTH = 20
 _BAR_FULL = "█"
 _BAR_EMPTY = "░"
@@ -105,6 +120,21 @@ def ask(
 ) -> Generator[str, None, None]:
     """Stream response tokens from the configured LLM backend."""
     backend = config.llm_backend
+
+    # If the configured local backend isn't installed, try the other one.
+    if backend in ("mlx", "llama-cpp"):
+        detected = _detect_backend()
+        if detected and detected != backend:
+            yield f"[dim]{backend} not available — using {detected}[/]"
+            backend = detected
+        elif not detected:
+            yield (
+                "[yellow]No local LLM backend installed.[/] "
+                "Install [cyan]mlx-lm[/] (Apple Silicon) or "
+                "[cyan]llama-cpp-python[/] (cross-platform), "
+                "or use [cyan]/config llm remote <url>[/]."
+            )
+            return
 
     if backend == "remote":
         if not config.llm_remote_url:
@@ -205,9 +235,18 @@ def _ask_llamacpp(
         return
 
     model_id = config.llm_model
+    from pathlib import Path
+    if not Path(model_id).exists():
+        from rich.markup import escape
+        yield (
+            f"[red]GGUF file not found:[/] {escape(model_id)}\n"
+            "Download a model first, then re-run [cyan]/config llm gguf <path>[/]."
+        )
+        return
+
     cache_key = f"llama-cpp:{model_id}"
     if cache_key not in _llm_cache:
-        yield f"[dim]Loading model {model_id}… (first load may take a minute)[/]"
+        yield f"[dim]Loading model {Path(model_id).name}… (first load may take a minute)[/]"
         try:
             llm = Llama(
                 model_path=model_id,

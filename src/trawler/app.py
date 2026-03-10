@@ -1110,24 +1110,29 @@ class TrawlerApp(App):
             if not llm_rest:
                 self.status.set_error("/config llm mlx — usage: /config llm mlx <hf-repo-id>")
                 return
+            from .search.local_llm import _detect_backend
+            detected = _detect_backend()
+            backend = "mlx" if detected == "mlx" else (detected or "mlx")
             self.config.llm_model = llm_rest
-            self.config.llm_backend = "mlx"
+            self.config.llm_backend = backend
             self.config.save()
-            self.status.set_done(f"MLX model set to {llm_rest} (downloads on first /ask)")
+            suffix = "" if backend == "mlx" else f" [dim](mlx not found — will use {backend})[/]"
+            self.status.set_done(f"Model set to {llm_rest}{suffix}")
 
         elif llm_sub == "gguf":
             if not llm_rest:
                 self.status.set_error("/config llm gguf — usage: /config llm gguf <path-to-.gguf>")
                 return
             from pathlib import Path
+            from .search.local_llm import _detect_backend
             p = Path(llm_rest).expanduser()
-            if not p.exists():
-                self.status.set_error(f"File not found: {p}")
-                return
+            detected = _detect_backend()
+            backend = "llama-cpp" if detected == "llama-cpp" else (detected or "llama-cpp")
             self.config.llm_model = str(p)
-            self.config.llm_backend = "llama-cpp"
+            self.config.llm_backend = backend
             self.config.save()
-            self.status.set_done(f"GGUF model set to {p.name}")
+            suffix = "" if backend == "llama-cpp" else f" [dim](llama-cpp not found — will use {backend})[/]"
+            self.status.set_done(f"GGUF model set to {p.name}{suffix}")
 
         else:
             self.status.set_error(

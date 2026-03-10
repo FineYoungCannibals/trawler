@@ -90,6 +90,12 @@ class CommandSuggester(Suggester):
         lower = value.lower()
         for cmd in COMMANDS:
             if cmd.startswith(lower) and cmd != lower:
+                # Never return a suggestion whose ghost text starts with a space.
+                # Textual's inline completion would consume the space keypress as
+                # "matching the ghost" rather than inserting it into the input.
+                ghost = cmd[len(value):]
+                if ghost.startswith(" "):
+                    continue
                 return cmd
         return None
 
@@ -133,10 +139,19 @@ class CommandBar(Widget):
             )
 
     def on_key(self, event) -> None:
+        inp = self.query_one(Input)
         if event.key == "tab":
             event.prevent_default()
             event.stop()
-            self.query_one(Input).action_cursor_right()
+            inp.action_cursor_right()
+        elif event.key == "space":
+            # On some terminals (e.g. Windows), the space key arrives with
+            # character=None so Input treats it as non-printable and never
+            # inserts it.  Handle it explicitly here so the space always
+            # reaches the input field regardless of terminal.
+            event.prevent_default()
+            event.stop()
+            inp.insert_text_at_cursor(" ")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.post_message(self.Submitted(event.value.strip()))

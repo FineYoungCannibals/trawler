@@ -719,14 +719,16 @@ class TrawlerApp(App):
 
             # --- inference / streaming phase ---
             accumulated = ""
+            had_meta = False
             last_repaint = 0.0
             REPAINT_INTERVAL = 0.05  # max 20 repaints/sec
 
             for token in llm_ask(question, context, self.config):
                 if token.startswith("["):
-                    # Meta message (loading notice, error) — commit current stream
-                    # then write to log so it doesn't get swallowed
-                    self.call_from_thread(results.update_stream, token)
+                    # Error or status message — write directly to the persistent
+                    # log so it isn't lost when the streaming overlay closes.
+                    had_meta = True
+                    self.call_from_thread(results.write, token)
                 else:
                     accumulated += token
                     now = time.monotonic()
@@ -735,6 +737,8 @@ class TrawlerApp(App):
                         last_repaint = now
 
             self.call_from_thread(results.end_stream, accumulated)
+            if not accumulated and not had_meta:
+                self.call_from_thread(results.write, "[dim]No response generated.[/]")
             self.call_from_thread(self.status.set_done, "/ask complete")
         except Exception as e:
             from rich.markup import escape
@@ -1165,7 +1169,7 @@ class TrawlerApp(App):
                 return
             from pathlib import Path
             from .search.local_llm import _detect_backend
-            p = Path(llm_rest).expanduser()
+            p = Path(llm_rest).expanduser().resolve()
             detected = _detect_backend()
             backend = "llama-cpp" if detected == "llama-cpp" else (detected or "llama-cpp")
             self.config.llm_model = str(p)

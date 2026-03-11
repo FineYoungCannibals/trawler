@@ -63,8 +63,8 @@ uv run python main.py
 
 | Command | Description |
 |---------|-------------|
-| `/search <pattern> [--dir <path>]` | Regex search across all configured directories |
-| `/rg [opts] <pattern> [--dir <path>]` | Ripgrep search (supports `-i`, `-m`, and all other rg flags) |
+| `/search <pattern> [--dir <path>]` | Regex search across all configured directories; inline flags supported: `(?i)` `(?m)` `(?s)` |
+| `/rg [-i] [-m] <pattern> [--dir <path>]` | Ripgrep search; supported flags: `-i`/`--ignore-case`, `-m`/`--multiline` (text files only) |
 | `/yara [rule-glob] [--dir <path>]` | Run YARA rules; glob filters by rule name (e.g. `email*`) |
 | `/semantic <query> [--dir <path>]` | Vector similarity search; `--dir` filters to one directory |
 | `/index` | Embed and index configured directories into ChromaDB |

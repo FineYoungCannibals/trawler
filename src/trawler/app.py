@@ -42,9 +42,44 @@ from .widgets.status_bar import StatusBar
 # Command tree for hierarchical help (Phase 5)
 # ---------------------------------------------------------------------------
 COMMAND_TREE: dict = {
-    "/search":   {"help": "Regex line scan across configured dirs", "args": "<pattern> [--dir <path>]"},
-    "/rg":       {"help": "Ripgrep search with full option passthrough", "args": "[opts] <pattern> [--dir <path>]"},
-    "/yara":     {"help": "Run YARA rules against configured dirs", "args": "[rule-glob] [--dir <path>]"},
+    "/search":   {
+        "help": "Regex line scan across configured dirs (Python re syntax). Supports PDF and DOCX via text extraction.",
+        "args": "<pattern> [--dir <path>]",
+        "notes": [
+            "Inline flags use Python regex syntax:",
+            "  (?i)          — case-insensitive  e.g. /search (?i)password",
+            "  (?m)          — multiline anchors (^ / $ per line)",
+            "  (?i)(?m)      — combine flags freely",
+            "  (?s)          — dot matches newline",
+            "--dir <path>  — limit search to one configured directory",
+            "PDF and DOCX files are text-extracted before scanning.",
+            "/rg is faster for large plain-text datasets; use /search for PDF/DOCX.",
+        ],
+    },
+    "/rg":       {
+        "help": "Ripgrep search (text files only — no PDF/DOCX). Last token is the pattern; flags precede it.",
+        "args": "[opts] <pattern> [--dir <path>]",
+        "notes": [
+            "Supported flags:",
+            "  -i / --ignore-case   — case-insensitive match",
+            "  -m / --multiline     — multiline mode",
+            "--dir <path>  — limit search to one configured directory",
+            "Note: PDF/DOCX are treated as binary by ripgrep — use /search for those.",
+        ],
+    },
+    "/yara":     {
+        "help": "Run YARA rules against configured dirs. Matches raw file bytes (not text-extracted).",
+        "args": "[rule-glob] [--dir <path>]",
+        "notes": [
+            "rule-glob filters by rule NAME (not filename) using fnmatch glob syntax:",
+            "  /yara            — run all rules",
+            "  /yara *cred*     — rules whose name contains 'cred'",
+            "  /yara pii_*      — rules whose name starts with 'pii_'",
+            "Rules live in src/trawler/rules/ (or custom path via /config rules <path>).",
+            "--dir <path>  — limit scan to one configured directory",
+            "YARA scans raw bytes: works on text-layer PDFs but not DOCX (compressed).",
+        ],
+    },
     "/semantic": {"help": "Vector similarity search (requires /index first)", "args": "<query> [--dir <path>]"},
     "/index":    {"help": "Embed and index configured dirs into ChromaDB"},
     "/ask":      {"help": "Ask a local or remote LLM about current results", "args": "<question>"},
@@ -474,6 +509,13 @@ class TrawlerApp(App):
             full = header + (f" {args}" if args else "")
             results.write(f"  [cyan]{full}[/]")
 
+        notes = node.get("notes")
+        if notes:
+            results.write("")
+            results.write("[bold]Details:[/]")
+            for note in notes:
+                results.write(f"  {note}")
+
     def _write_help_content(self, results) -> None:
         results.write("[cyan]              |                                   [/]")
         results.write("[cyan]             _|_                                  [/]")
@@ -494,9 +536,9 @@ class TrawlerApp(App):
         results.write("[bold]Welcome to Trawler[/]")
         results.write("")
         results.write("Commands:")
-        results.write("  [cyan]/search <pattern> [--dir <path>][/]  — regex string search")
-        results.write("  [cyan]/rg [opts] <pattern> [--dir <path>][/]  — ripgrep search")
-        results.write("  [cyan]/yara [rule-glob] [--dir <path>][/]  — run YARA rules (* = all)")
+        results.write("  [cyan]/search <pattern> [--dir <path>][/]  — regex search; inline flags: (?i) (?m) (?s); supports PDF/DOCX")
+        results.write("  [cyan]/rg [-i] [-m] <pattern> [--dir <path>][/]  — ripgrep search (text files only)")
+        results.write("  [cyan]/yara [rule-name-glob] [--dir <path>][/]  — YARA scan; glob filters by rule name (* = all)")
         results.write("  [cyan]/semantic <query> [--dir <path>][/]  — vector/semantic search")
         results.write("  [cyan]/index[/]  — embed & index directories for semantic search")
         results.write("  [cyan]/ask <question>[/]  — ask a local or remote LLM about current results")
@@ -611,13 +653,19 @@ class TrawlerApp(App):
 
         if cmd == "/search":
             if not args:
-                results.write("[red]Usage:[/] /search <pattern>")
+                results.write("[red]Usage:[/] /search <pattern> [--dir <path>]")
+                results.write("  Inline flags: [cyan](?i)[/] case-insensitive  [cyan](?m)[/] multiline  [cyan](?s)[/] dot=newline")
+                results.write("  Example: [cyan]/search (?i)password[/]  or  [cyan]/search (?i)(?m)^user:[/]")
+                results.write("  Supports PDF and DOCX (text-extracted). Type [cyan]/help search[/] for details.")
                 return
             self.status.set_running(f"/search {args}")
             self._run_search(cmd, args)
         elif cmd == "/rg":
             if not args:
-                results.write("[red]Usage:[/] /rg [options] <pattern>")
+                results.write("[red]Usage:[/] /rg [options] <pattern> [--dir <path>]")
+                results.write("  Flags: [cyan]-i[/] / [cyan]--ignore-case[/]   [cyan]-m[/] / [cyan]--multiline[/]")
+                results.write("  Example: [cyan]/rg -i password[/]  or  [cyan]/rg --multiline 'user.*pass'[/]")
+                results.write("  Note: text files only — use [cyan]/search[/] for PDF/DOCX. Type [cyan]/help rg[/] for details.")
                 return
             self.status.set_running(f"/rg {args}")
             self._run_search(cmd, args)

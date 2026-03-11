@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from pathlib import Path
 from typing import Iterator
 
 import yara
 from rich.markup import escape
+
+# Matches ANSI/VT escape sequences (CSI, OSC, etc.)
+_ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|[^[\]]?)")
+
+_MAX_MATCH_DISPLAY = 200  # characters
+
+
+def _safe_value(data: bytes) -> str:
+    """Decode matched bytes to a terminal-safe display string."""
+    text = data.decode("utf-8", errors="replace")
+    text = _ANSI_RE.sub("", text)                         # strip ANSI/VT sequences
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)    # strip remaining control chars
+    if len(text) > _MAX_MATCH_DISPLAY:
+        text = text[:_MAX_MATCH_DISPLAY] + "…"
+    return escape(text)
 
 DEFAULT_RULES_DIR = Path(__file__).parent.parent / "rules"
 
@@ -77,11 +93,7 @@ def scan(pattern: str | None, directories: list[str], rules_dir: str | None = No
                         offset = string_match.instances[0].offset
                         identifier = escape(string_match.identifier)
                         try:
-                            value = escape(
-                                string_match.instances[0].matched_data.decode(
-                                    "utf-8", errors="replace"
-                                )
-                            )
+                            value = _safe_value(string_match.instances[0].matched_data)
                         except Exception:
                             value = "[dim][binary data][/]"
                         yield f"  [dim]offset {offset}[/] {identifier}: {value}"

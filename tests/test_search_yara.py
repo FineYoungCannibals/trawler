@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from trawler.search.yara_scan import scan
+from trawler.search.yara_scan import _safe_value, scan
 
 
 def _collect(pattern, directories):
@@ -91,3 +91,84 @@ def test_default_rules_dir_used_when_none(data_dir):
     # Passing rules_dir=None should fall back to bundled rules
     results = list(scan(None, [str(data_dir)], rules_dir=None))
     assert any("email_address" in r for r in results)
+
+
+# ---------------------------------------------------------------------------
+# _safe_value — matched-data sanitisation
+# ---------------------------------------------------------------------------
+
+def test_safe_value_clean_ascii_passthrough():
+    assert _safe_value(b"hello world") == "hello world"
+
+
+def test_safe_value_strips_ansi_color_codes():
+    # ESC[31m...ESC[0m — SGR color sequences
+    data = b"\x1b[31mred text\x1b[0m"
+    result = _safe_value(data)
+    assert "\x1b" not in result
+    assert "red text" in result
+
+
+def test_safe_value_strips_carriage_return():
+    data = b"line one\r\nline two"
+    result = _safe_value(data)
+    assert "\r" not in result
+    assert "\n" not in result
+
+
+def test_safe_value_strips_null_and_control_chars():
+    data = b"before\x00\x01\x07\x1fafter"
+    result = _safe_value(data)
+    for ch in ("\x00", "\x01", "\x07", "\x1f"):
+        assert ch not in result
+    assert "before" in result
+    assert "after" in result
+
+
+def test_safe_value_strips_escape_char_alone():
+    data = b"text \x1b more text"
+    result = _safe_value(data)
+    assert "\x1b" not in result
+    assert "text" in result
+    assert "more text" in result
+
+
+def test_safe_value_truncates_long_data():
+    data = b"A" * 300
+    result = _safe_value(data)
+    assert result.endswith("…")
+    # Should not exceed 200 visible chars + ellipsis
+    assert len(result) <= 202
+
+
+def test_safe_value_no_truncation_at_limit():
+    data = b"B" * 200
+    result = _safe_value(data)
+    assert result == "B" * 200
+    assert "…" not in result
+
+
+def test_safe_value_binary_replacement_chars_are_safe():
+    # Non-UTF-8 bytes become replacement chars U+FFFD, which are harmless
+    data = b"\xff\xfe\xfd"
+    result = _safe_value(data)
+    assert "\x1b" not in result
+    assert "\r" not in result
+
+
+def test_safe_value_escapes_rich_markup():
+    # Square brackets are escaped with \ so Rich doesn't treat them as markup tags.
+    # rich.markup.escape("[bold]") → r"\[bold]"
+    data = b"[bold]not markup[/bold]"
+    result = _safe_value(data)
+    assert result.startswith(r"\[")   # leading [ is backslash-escaped
+    assert "bold" in result           # text content preserved
+
+
+def test_safe_value_osc_sequence_stripped():
+    # OSC sequence: ESC ] ... BEL
+    data = b"\x1b]0;window title\x07normal text"
+    result = _safe_value(data)
+    assert "\x1b" not in result
+    assert "window title" not in result
+    assert "normal text" in result

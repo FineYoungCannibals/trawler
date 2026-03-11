@@ -115,6 +115,21 @@ def index(
         chunk_overlap=CHUNK_OVERLAP,
     )
     state = IndexState()
+
+    # Detect ChromaDB/index_state inconsistency: if ChromaDB is empty but
+    # index_state has entries, the state is stale — reset it so files get re-indexed.
+    try:
+        if vectorstore._collection.count() == 0 and state._records:
+            log("[yellow]Vector store is empty but index state has entries — resetting index state.[/]")
+            state.clear()
+    except Exception:
+        pass
+
+    # Prune index_state entries for files no longer on disk.
+    pruned = state.prune_deleted()
+    if pruned:
+        log(f"[dim]Pruned {pruned} stale index state entry(s) for deleted files.[/]")
+
     unindexed = list(state.unindexed_files(directories))
 
     if not unindexed:

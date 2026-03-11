@@ -264,7 +264,7 @@ Semantic search uses [sentence-transformers](https://www.sbert.net/) to embed fi
 
 **When to use it**: semantic search is best for natural language content (emails, logs, notes). It is not well-suited for structured data (JSON, CSV, SQL) — use `/rg` for those.
 
-**Indexing**: run `/index` to embed your directories. Re-running is incremental — only changed files are re-embedded.
+**Indexing**: run `/index` to embed your directories. Re-running is incremental — only changed or new files are re-embedded. Stale index state is handled automatically: if the vector store has been cleared outside of `/reset`, the index state resets and all files are re-embedded on the next `/index` run. Entries for files that no longer exist on disk are pruned automatically each time `/index` runs.
 
 ---
 

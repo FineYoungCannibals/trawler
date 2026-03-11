@@ -55,6 +55,19 @@ class IndexState:
         self._records[str(path)] = FileRecord(mtime=stat.st_mtime, size=stat.st_size)
         self._save()
 
+    def prune_deleted(self) -> int:
+        """Remove entries for files that no longer exist on disk. Returns count removed."""
+        missing = [k for k in self._records if not Path(k).exists()]
+        for k in missing:
+            del self._records[k]
+        if missing:
+            self._save()
+        return len(missing)
+
+    def clear(self) -> None:
+        self._records.clear()
+        self._save()
+
     def unindexed_files(self, directories: list[str]) -> Iterator[Path]:
         """Yield files in the given directories that need (re-)indexing."""
         for dir_path in directories:

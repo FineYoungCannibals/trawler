@@ -13,12 +13,12 @@ Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA, and s
 - **YARA rules** — scan files against rules in `src/trawler/rules/`
 - **Semantic search** — vector similarity search via ChromaDB + sentence-transformers (local, no API key)
 - **LLM `/ask`** — ask a local or remote LLM questions about the current results panel; streams tokens as they arrive
-- **Directory scoping** — add `--dir <path>` to any search command to restrict results to one directory
+- **Directory scoping** — add `--dir <path>` to any search command to restrict results to a configured directory
 - **PDF & DOCX support** — text is extracted from PDF and Word documents for `/search`, `/index`, and `/semantic`; encrypted or image-only PDFs are skipped gracefully
 - **Incremental indexing** — only re-embeds files that have changed since the last run
 - **File type & size filtering** — skip binary, structured, or oversized files before indexing
 - **Progressive command help** — type any command or subcommand alone to see what's available at that level
-- **Tab path completion** — complete directory paths in the command bar, including `--dir` arguments
+- **Tab completion** — complete directory paths in the command bar; `--dir` cycles through configured directories
 - **Command history** — up/down arrows cycle through previous commands, shell-style
 - **Clipboard export** — `ctrl+y` copies all results to clipboard
 
@@ -76,7 +76,7 @@ uv run python main.py
 
 ### Directory scoping
 
-All four search commands accept an optional `--dir <path>` flag to restrict the search to a single directory. The path can be any directory on disk — not just a configured one, so you can drill into subdirectories freely.
+All four search commands accept an optional `--dir <path>` flag to restrict the search to a single configured directory. The path must be one added via `/config path add` — non-configured directories are rejected with an error.
 
 ```
 /search password --dir /data/breach2/
@@ -85,7 +85,7 @@ All four search commands accept an optional `--dir <path>` flag to restrict the 
 /semantic login credentials --dir /data/drops/
 ```
 
-Typing `--dir ` and pressing Tab completes filesystem paths the same way `/config path add` does.
+Typing `--dir ` and pressing Tab cycles through configured directories.
 
 ### Progressive help
 

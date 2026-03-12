@@ -120,30 +120,74 @@ def test_rm_get_dirs_exception_returns_none():
 
 
 # ---------------------------------------------------------------------------
-# CommandSuggester — --dir filesystem completion
+# CommandSuggester — --dir configured directory cycling
 # ---------------------------------------------------------------------------
 
-def test_dir_flag_completes_path(tmp_path):
-    (tmp_path / "drops").mkdir()
-    partial = str(tmp_path) + "/dr"
-    value = f"/search passwords --dir {partial}"
-    result = _suggest(value)
-    assert result is not None
-    assert result.startswith("/search passwords --dir ")
-    assert "drops" in result
+def test_dir_flag_empty_suggests_first_configured_dir():
+    dirs = ["/data/breach", "/data/drops"]
+    result = _suggest("/search passwords --dir ", get_dirs=lambda: dirs)
+    assert result == "/search passwords --dir /data/breach"
 
 
-def test_dir_flag_after_rg_options(tmp_path):
-    (tmp_path / "archive").mkdir()
-    partial = str(tmp_path) + "/arc"
-    value = f"/rg -i email --dir {partial}"
-    result = _suggest(value)
-    assert result is not None
-    assert result.startswith("/rg -i email --dir ")
-    assert "archive" in result
+def test_dir_flag_exact_match_cycles_to_next():
+    dirs = ["/data/breach", "/data/drops", "/data/logs"]
+    result = _suggest("/search passwords --dir /data/breach", get_dirs=lambda: dirs)
+    assert result == "/search passwords --dir /data/drops"
 
 
-def test_dir_flag_no_match_returns_none(tmp_path):
-    value = f"/search foo --dir {tmp_path}/zzz_no_such"
-    result = _suggest(value)
+def test_dir_flag_exact_match_cycles_wrap_around():
+    dirs = ["/data/breach", "/data/drops"]
+    result = _suggest("/search passwords --dir /data/drops", get_dirs=lambda: dirs)
+    assert result == "/search passwords --dir /data/breach"
+
+
+def test_dir_flag_partial_match_suggests_first():
+    dirs = ["/data/breach", "/data/drops"]
+    result = _suggest("/search passwords --dir /data/d", get_dirs=lambda: dirs)
+    assert result == "/search passwords --dir /data/drops"
+
+
+def test_dir_flag_after_rg_options():
+    dirs = ["/data/archive", "/data/breach"]
+    result = _suggest("/rg -i email --dir /data/a", get_dirs=lambda: dirs)
+    assert result == "/rg -i email --dir /data/archive"
+
+
+def test_dir_flag_no_match_returns_none():
+    dirs = ["/data/breach", "/data/drops"]
+    result = _suggest("/search foo --dir /other/path", get_dirs=lambda: dirs)
     assert result is None
+
+
+def test_dir_flag_no_dirs_returns_none():
+    result = _suggest("/search foo --dir ", get_dirs=lambda: [])
+    assert result is None
+
+
+def test_dir_flag_no_get_dirs_returns_none():
+    result = _suggest("/search foo --dir /data/")
+    assert result is None
+
+
+def test_dir_flag_single_dir_exact_match_returns_none():
+    dirs = ["/data/breach"]
+    result = _suggest("/search passwords --dir /data/breach", get_dirs=lambda: dirs)
+    assert result is None
+
+
+def test_dir_flag_quotes_path_with_spaces():
+    dirs = ["/data/my breach data", "/data/drops"]
+    result = _suggest("/search passwords --dir ", get_dirs=lambda: dirs)
+    assert result == '/search passwords --dir "/data/my breach data"'
+
+
+def test_dir_flag_cycles_quoted_path_with_spaces():
+    dirs = ["/data/breach", "/data/my drops"]
+    result = _suggest('/search passwords --dir /data/breach', get_dirs=lambda: dirs)
+    assert result == '/search passwords --dir "/data/my drops"'
+
+
+def test_dir_flag_exact_match_quoted_input():
+    dirs = ["/data/my breach", "/data/drops"]
+    result = _suggest('/search passwords --dir "/data/my breach"', get_dirs=lambda: dirs)
+    assert result == "/search passwords --dir /data/drops"

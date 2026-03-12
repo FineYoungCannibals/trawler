@@ -118,18 +118,43 @@ class CommandSuggester(Suggester):
                 return None
             return _PATH_PREFIX + completed
 
-        # --- --dir <path>: filesystem completion (any search command) -----
+        # --- --dir <path>: cycle through configured directories -------------
         # Find the last occurrence of " --dir " in the typed value so that
         # completion works regardless of what comes before the flag.
         lower = value.lower()
         dir_flag_pos = lower.rfind(_DIR_FLAG.lower())
-        if dir_flag_pos != -1:
+        if dir_flag_pos != -1 and self._get_dirs:
             prefix = value[:dir_flag_pos + len(_DIR_FLAG)]
             path_part = value[len(prefix):]
-            completed = _complete_fs_path(path_part)
-            if completed is None:
+            # Strip surrounding quotes so matching works against raw dir paths
+            stripped = path_part.strip('"').strip("'")
+            try:
+                dirs = self._get_dirs()
+            except Exception:
+                dirs = []
+            if not dirs:
                 return None
-            return prefix + completed
+
+            def _quote(d: str) -> str:
+                return f'"{d}"' if " " in d else d
+
+            # Empty path part → suggest first configured dir
+            if not stripped:
+                return prefix + _quote(dirs[0])
+            # Exact match → cycle to next configured dir
+            try:
+                idx = dirs.index(stripped)
+                next_dir = dirs[(idx + 1) % len(dirs)]
+                if next_dir == stripped:
+                    return None
+                return prefix + _quote(next_dir)
+            except ValueError:
+                pass
+            # Partial match → suggest first configured dir that starts with it
+            for d in dirs:
+                if d.startswith(stripped) and d != stripped:
+                    return prefix + _quote(d)
+            return None
 
         # --- command keyword completion ------------------------------------
         for cmd in COMMANDS:

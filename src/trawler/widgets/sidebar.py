@@ -36,51 +36,33 @@ class DirectoryItem(ListItem):
         path: str,
         status: dict[str, int],
         disk_size: int | None,
-        max_file_bytes: int = 0,
     ) -> None:
         super().__init__()
         self.path = path
         self.status = status
         self.disk_size = disk_size
-        self.max_file_bytes = max_file_bytes
 
     def compose(self) -> ComposeResult:
         eligible = self.status.get("eligible", 0)
         indexed = self.status.get("indexed", 0)
         total = self.status.get("total", 0)
-        oversized = self.status.get("oversized", 0)
+
+        display_path = self.path if len(self.path) <= 40 else "…" + self.path[-39:]
 
         if total == 0:
-            indicator = "[dim]○ empty[/]"
-        elif eligible == 0:
-            indicator = "[dim]○ no eligible files[/]"
-        elif indexed == eligible:
-            indicator = f"[green]● {indexed} indexed[/]"
-        elif indexed == 0:
-            indicator = f"[yellow]○ 0/{eligible} eligible[/]"
+            lines = [display_path, "  [dim]empty[/]"]
         else:
-            indicator = f"[yellow]○ {indexed}/{eligible} indexed[/]"
+            size_str = _fmt_size(self.disk_size) if self.disk_size is not None else "[dim]…[/]"
+            lines = [display_path, f"  {total} files  [dim]{size_str}[/]"]
 
-        size_str = _fmt_size(self.disk_size) if self.disk_size is not None else "[dim]…[/]"
-        display_path = self.path if len(self.path) <= 38 else "…" + self.path[-37:]
-
-        lines = [display_path, f"  {indicator}  [dim]{size_str}[/]"]
-
-        if oversized and self.max_file_bytes:
-            lines.append(f"  [yellow]⚠ {oversized} skipped (over size limit)[/]")
-
-        type_skipped_exts: dict[str, int] = self.status.get("type_skipped_exts", {})
-        if type_skipped_exts:
-            sorted_exts = sorted(type_skipped_exts.items(), key=lambda x: -x[1])
-            shown = sorted_exts[:3]
-            remainder = len(sorted_exts) - 3
-            ext_parts = "  ".join(
-                f"[dim]{(ext if ext else '(no ext)')}({n})[/]"
-                for ext, n in shown
-            )
-            if remainder > 0:
-                ext_parts += f"  [dim]+{remainder} more[/]"
-            lines.append(f"  [dim]skip:[/] {ext_parts}")
+            if eligible == 0:
+                lines.append("  [dim]index: 0 eligible[/]")
+            elif indexed == eligible:
+                lines.append(f"  [green]index: {indexed}/{eligible} ✓[/]")
+            elif indexed > 0:
+                lines.append(f"  [yellow]index: {indexed}/{eligible}[/]")
+            else:
+                lines.append(f"  [dim]index: 0/{eligible}[/]")
 
         yield Label("\n".join(lines), markup=True)
 
@@ -88,7 +70,7 @@ class DirectoryItem(ListItem):
 class DirectorySidebar(Widget):
     DEFAULT_CSS = """
     DirectorySidebar {
-        width: 42;
+        width: 44;
         layout: vertical;
         border: solid $primary;
         padding: 0 1;
@@ -160,9 +142,8 @@ class DirectorySidebar(Widget):
         yield Static("Directories", classes="sidebar-title")
         statuses = self._get_status()
         if self.config.directories:
-            limit = self.config.max_file_bytes or 0
             items = [
-                DirectoryItem(d, statuses.get(d, {}), self._dir_sizes.get(d), limit)
+                DirectoryItem(d, statuses.get(d, {}), self._dir_sizes.get(d))
                 for d in self.config.directories
             ]
             yield ListView(*items)

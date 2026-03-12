@@ -397,7 +397,7 @@ class TrawlerApp(App):
         height: 1fr;
     }
     DirectorySidebar {
-        width: 42;
+        width: 44;
     }
     ResultsPanel {
         width: 1fr;
@@ -710,6 +710,38 @@ class TrawlerApp(App):
                 i += 1
         return shlex.join(cleaned), dir_path
 
+    def _resolve_dir_filter(
+        self, args: str, dir_filter: str | None, cleaned_args: str,
+    ) -> tuple[str, str | None]:
+        """Resolve *dir_filter* against configured directories.
+
+        When shlex parsing can't split an unquoted path with spaces from the
+        remaining arguments, fall back to prefix-matching against configured
+        dirs.  Returns ``(cleaned_args, resolved_dir | None)``.
+        """
+        if dir_filter is None:
+            return cleaned_args, None
+        if dir_filter in self.config.directories:
+            return cleaned_args, dir_filter
+        # Fallback: the raw text after "--dir " may contain an unquoted path
+        # with spaces followed by more arguments.  Find the longest configured
+        # dir that is a prefix of that raw tail.
+        flag = "--dir"
+        idx = args.find(flag)
+        if idx == -1:
+            return cleaned_args, dir_filter
+        tail = args[idx + len(flag):].lstrip()
+        best: str | None = None
+        for d in self.config.directories:
+            if tail.startswith(d) and (best is None or len(d) > len(best)):
+                best = d
+        if best is not None:
+            remaining = tail[len(best):].strip()
+            before = args[:idx].strip()
+            new_cleaned = (before + " " + remaining).strip() if remaining else before
+            return new_cleaned, best
+        return cleaned_args, dir_filter
+
     @work(thread=True)
     def _run_search(self, cmd: str, args: str) -> None:
         self._stop_search.clear()
@@ -723,12 +755,15 @@ class TrawlerApp(App):
             self.call_from_thread(results.write, line)
 
         clean_args, dir_filter = self._parse_dir_flag(args)
+        clean_args, dir_filter = self._resolve_dir_filter(args, dir_filter, clean_args)
 
         if dir_filter is not None:
-            p = Path(dir_filter)
-            if not p.exists():
-                self.call_from_thread(results.write, f"[red]Path not found:[/] {dir_filter}")
-                self.call_from_thread(self.status.set_error, f"{cmd} — path not found")
+            if dir_filter not in self.config.directories:
+                self.call_from_thread(
+                    results.write,
+                    f"[red]Directory not configured:[/] {dir_filter}\nUse /config path add to add it first.",
+                )
+                self.call_from_thread(self.status.set_error, f"{cmd} — directory not configured")
                 self._searching = False
                 return
             dirs = [dir_filter]
@@ -778,12 +813,16 @@ class TrawlerApp(App):
             count += 1
             self.call_from_thread(results.write, line)
 
-        filter_dir: str | None = None
-        query = args
-        if "--dir" in args:
-            parts = args.split("--dir", 1)
-            query = parts[0].strip()
-            filter_dir = parts[1].strip()
+        query, filter_dir = self._parse_dir_flag(args)
+        query, filter_dir = self._resolve_dir_filter(args, filter_dir, query)
+
+        if filter_dir is not None and filter_dir not in self.config.directories:
+            self.call_from_thread(
+                results.write,
+                f"[red]Directory not configured:[/] {filter_dir}\nUse /config path add to add it first.",
+            )
+            self.call_from_thread(self.status.set_error, "/semantic — directory not configured")
+            return
 
         for line in semantic_search.search(
             query,

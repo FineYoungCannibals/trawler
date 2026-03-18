@@ -239,6 +239,7 @@ def search(
     query: str,
     model_name: str = DEFAULT_MODEL,
     filter_dir: str | None = None,
+    topk: int = TOP_K,
 ) -> Iterator[str]:
     """Semantic similarity search."""
     if not CHROMA_DIR.exists():
@@ -256,7 +257,7 @@ def search(
 
     try:
         raw_results = vectorstore.similarity_search_with_score(
-            query, k=TOP_K, filter=where
+            query, k=topk, filter=where
         )
     except Exception as e:
         yield f"[red]Search error:[/] {escape(str(e))}"

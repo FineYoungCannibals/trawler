@@ -100,6 +100,7 @@ COMMAND_TREE: dict = {
             "filesize": {"help": "Set max file size for indexing", "args": "<value|0=unlimited>"},
             "rules":    {"help": "Set custom YARA rules directory", "args": "<path>|reset"},
             "proxy":    {"help": "Set HTTP proxy for model downloads", "args": "<url>|reset"},
+            "topk":     {"help": "Set number of results for semantic search", "args": "<value>"},
             "ext": {
                 "help": "Manage file extension filters",
                 "subcommands": {
@@ -828,6 +829,7 @@ class TrawlerApp(App):
             query,
             model_name=self.config.embedding_model,
             filter_dir=filter_dir,
+            topk=self.config.topk,
         ):
             emit(line)
 
@@ -1008,6 +1010,7 @@ class TrawlerApp(App):
                 limit_str = _fmt_size(limit)
             results.write(f"  File size limit:  {limit_str}")
             results.write(f"  Embedding model:  [dim]{self.config.embedding_model}[/]")
+            results.write(f"  Semantic top-k:   [dim]{self.config.topk}[/]")
             from .search.yara_scan import DEFAULT_RULES_DIR
             rules_str = self.config.rules_dir if self.config.rules_dir else f"[dim]{DEFAULT_RULES_DIR} (default)[/]"
             results.write(f"  YARA rules dir:   {rules_str}")
@@ -1027,6 +1030,7 @@ class TrawlerApp(App):
             results.write("  [cyan]/config ext[/]              — manage file extension filters")
             results.write("  [cyan]/config rules[/]            — set custom YARA rules directory")
             results.write("  [cyan]/config proxy[/]            — set HTTP/HTTPS proxy")
+            results.write("  [cyan]/config topk <value>[/]     — set semantic search result count")
             results.write("  [cyan]/config llm[/]              — view/configure LLM for /ask")
             results.write("  [dim]type any subcommand alone for details[/]")
             return
@@ -1203,6 +1207,26 @@ class TrawlerApp(App):
                 self.config.rules_dir = str(p)
                 self.config.save()
                 self.status.set_done(f"YARA rules directory set to {rest}")
+
+        elif sub == "topk":
+            if not rest:
+                results.show_utility()
+                results.write_header("/config topk")
+                results.write(f"  Current top-k:  [dim]{self.config.topk}[/]")
+                results.write("")
+                results.write("[bold]Commands:[/]")
+                results.write("  [cyan]/config topk <value>[/]  — set number of semantic search results (e.g. 10, 20)")
+                return
+            try:
+                value = int(rest)
+                if value < 1:
+                    self.status.set_error("topk must be at least 1")
+                    return
+                self.config.topk = value
+                self.config.save()
+                self.status.set_done(f"Semantic top-k set to {value}")
+            except ValueError:
+                self.status.set_error(f"Invalid topk value: {rest}")
 
         elif sub == "llm":
             self._handle_config_llm(rest, results)

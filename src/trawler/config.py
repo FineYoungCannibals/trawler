@@ -56,6 +56,8 @@ class TrawlerConfig:
     llm_remote_api_key: str | None = None
     # optional system prompt sent before user message; None = no system prompt
     llm_system_prompt: str | None = None
+    # number of top results returned by semantic search
+    topk: int = 8
 
     @classmethod
     def load(cls) -> TrawlerConfig:
@@ -80,6 +82,7 @@ class TrawlerConfig:
         llm_remote_url = trawler.get("llm_remote_url") or None
         llm_remote_api_key = trawler.get("llm_remote_api_key") or None
         llm_system_prompt = trawler.get("llm_system_prompt") or None
+        topk = int(trawler.get("topk", 8))
         return cls(
             directories=dirs,
             embedding_model=model,
@@ -94,6 +97,7 @@ class TrawlerConfig:
             llm_remote_url=llm_remote_url,
             llm_remote_api_key=llm_remote_api_key,
             llm_system_prompt=llm_system_prompt,
+            topk=topk,
         )
 
     def save(self) -> None:
@@ -117,6 +121,7 @@ class TrawlerConfig:
             trawler_section["llm_remote_api_key"] = self.llm_remote_api_key
         if self.llm_system_prompt is not None:
             trawler_section["llm_system_prompt"] = self.llm_system_prompt
+        trawler_section["topk"] = self.topk
         data: dict = {
             "trawler": trawler_section,
             "directories": [{"path": d} for d in self.directories],

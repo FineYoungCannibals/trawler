@@ -1,7 +1,10 @@
 [project]
 name = "trawler"
-version = "0.3.0"
-description = "Add your description here"
+version = "0.3.1"
+description = """
+Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA,
+and semantic vector searches across breach data, leaks, and other unstructured
+data dumps — without standing up any infrastructure."""
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [

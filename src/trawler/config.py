@@ -58,6 +58,25 @@ class TrawlerConfig:
     llm_system_prompt: str | None = None
     # number of top results returned by semantic search
     topk: int = 8
+    # Optional extra HTTP headers sent with every remote LLM request.
+    # Merged on top of defaults (Content-Type, Authorization).
+    # User-supplied headers win — they can override Content-Type and even
+    # Authorization if needed.
+    # Configured via [trawler.llm_remote_headers] in config.toml:
+    #   [trawler.llm_remote_headers]
+    #   X-Custom-Header = "value"
+    llm_remote_headers: dict[str, str] = field(default_factory=dict)
+    # Optional OAuth 2.0 client credentials grant configuration.
+    # When present, a Bearer token is fetched (and cached until expiry)
+    # before each remote LLM request.  Takes priority over llm_remote_api_key.
+    # Required keys: auth_url, client_id, client_secret.  Optional: scope.
+    # Configured via [trawler.llm_oauth] in config.toml:
+    #   [trawler.llm_oauth]
+    #   auth_url = "https://auth.corp.com/oauth2/token"
+    #   client_id = "my-client-id"
+    #   client_secret = "my-client-secret"
+    #   scope = "llm.access"
+    llm_oauth: dict[str, str] | None = None
 
     @classmethod
     def load(cls) -> TrawlerConfig:
@@ -83,6 +102,9 @@ class TrawlerConfig:
         llm_remote_api_key = trawler.get("llm_remote_api_key") or None
         llm_system_prompt = trawler.get("llm_system_prompt") or None
         topk = int(trawler.get("topk", 8))
+        llm_remote_headers = trawler.get("llm_remote_headers", {})
+        llm_oauth_raw = trawler.get("llm_oauth")
+        llm_oauth = dict(llm_oauth_raw) if llm_oauth_raw else None
         return cls(
             directories=dirs,
             embedding_model=model,
@@ -98,6 +120,8 @@ class TrawlerConfig:
             llm_remote_api_key=llm_remote_api_key,
             llm_system_prompt=llm_system_prompt,
             topk=topk,
+            llm_remote_headers=llm_remote_headers,
+            llm_oauth=llm_oauth,
         )
 
     def save(self) -> None:
@@ -122,6 +146,10 @@ class TrawlerConfig:
         if self.llm_system_prompt is not None:
             trawler_section["llm_system_prompt"] = self.llm_system_prompt
         trawler_section["topk"] = self.topk
+        if self.llm_remote_headers:
+            trawler_section["llm_remote_headers"] = self.llm_remote_headers
+        if self.llm_oauth is not None:
+            trawler_section["llm_oauth"] = self.llm_oauth
         data: dict = {
             "trawler": trawler_section,
             "directories": [{"path": d} for d in self.directories],

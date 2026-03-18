@@ -17,6 +17,44 @@ if TYPE_CHECKING:
 # Module-level cache so the model is not reloaded between /ask calls
 _llm_cache: dict[str, object] = {}
 
+# OAuth token cache: {"access_token": str, "expires_at": float}
+_oauth_cache: dict[str, object] = {}
+
+
+def _fetch_oauth_token(oauth_config: dict[str, str], proxy: str | None = None) -> str:
+    """Fetch an OAuth 2.0 client credentials token, using cache when valid."""
+    import httpx
+
+    cached_token = _oauth_cache.get("access_token")
+    cached_expiry = _oauth_cache.get("expires_at", 0.0)
+    if cached_token and time.monotonic() < cached_expiry:  # type: ignore[operator]
+        return cached_token  # type: ignore[return-value]
+
+    auth_url = oauth_config["auth_url"]
+    form_data: dict[str, str] = {
+        "grant_type": "client_credentials",
+        "client_id": oauth_config["client_id"],
+        "client_secret": oauth_config["client_secret"],
+    }
+    if oauth_config.get("scope"):
+        form_data["scope"] = oauth_config["scope"]
+
+    client_kwargs: dict = {"timeout": 10}
+    if proxy:
+        client_kwargs["proxy"] = proxy
+
+    with httpx.Client(**client_kwargs) as client:
+        resp = client.post(auth_url, data=form_data)
+        resp.raise_for_status()
+        body = resp.json()
+
+    token = body["access_token"]
+    expires_in = int(body.get("expires_in", 3600))
+    _oauth_cache["access_token"] = token
+    _oauth_cache["expires_at"] = time.monotonic() + expires_in - 30
+
+    return token
+
 
 def _detect_backend() -> str | None:
     """Return the best available local backend, or None if neither is installed."""
@@ -285,8 +323,18 @@ def _ask_remote(
     messages = _build_messages(question, ctx, config.llm_system_prompt)
 
     headers = {"Content-Type": "application/json"}
-    if config.llm_remote_api_key:
+    if config.llm_oauth:
+        try:
+            token = _fetch_oauth_token(config.llm_oauth, config.proxy)
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            yield f"[red]OAuth token fetch failed:[/] {escape(str(e))}"
+            return
+    elif config.llm_remote_api_key:
         headers["Authorization"] = f"Bearer {config.llm_remote_api_key}"
+    # User-configured headers override everything above
+    if config.llm_remote_headers:
+        headers.update(config.llm_remote_headers)
 
     payload: dict = {"messages": messages, "stream": True}
     if config.llm_model:

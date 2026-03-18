@@ -223,6 +223,81 @@ No system prompt is set by default. Add one if you want to constrain the model's
 /config llm systemprompt reset
 ```
 
+### Custom headers for remote endpoints
+
+Some LLM servers (corporate gateways, API proxies, internal platforms) require custom HTTP headers beyond `Content-Type` and `Authorization`. You can add arbitrary headers that are sent with every remote `/ask` request by editing `.trawler/config.toml` directly — there is no `/config` subcommand for this.
+
+Add a `[trawler.llm_remote_headers]` section to your config:
+
+```toml
+[trawler.llm_remote_headers]
+X-Api-Gateway-Key = "gw-abc123"
+X-Team-Id = "threat-intel"
+```
+
+These headers are merged on top of the defaults (`Content-Type: application/json` and the `Authorization` header from your API key or OAuth token). If you need to override a default, you can — a custom `Content-Type` or `Authorization` in this section takes priority over everything else.
+
+**Header priority** (highest wins):
+
+1. `[trawler.llm_remote_headers]` — can override any header, including `Authorization`
+2. OAuth token (see below) or `llm_remote_api_key` — sets `Authorization: Bearer <token>`
+3. `Content-Type: application/json` — always set as a baseline
+
+### OAuth 2.0 client credentials
+
+If your LLM endpoint is protected by an OAuth 2.0 authorization server (common in corporate environments), Trawler can fetch a Bearer token automatically using the [client credentials grant](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4). The token is cached in memory until it expires (with a 30-second safety buffer), so repeated `/ask` calls don't re-authenticate every time.
+
+Add a `[trawler.llm_oauth]` section to `.trawler/config.toml`:
+
+```toml
+[trawler.llm_oauth]
+auth_url = "https://auth.corp.com/oauth2/token"
+client_id = "my-client-id"
+client_secret = "my-client-secret"
+scope = "llm.access"  # optional — omit if your auth server doesn't require it
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `auth_url` | yes | Token endpoint URL (must accept `grant_type=client_credentials` as form POST) |
+| `client_id` | yes | OAuth client ID |
+| `client_secret` | yes | OAuth client secret |
+| `scope` | no | Space-separated scope string; omitted from the token request if not set |
+
+When `[trawler.llm_oauth]` is present, it takes priority over `llm_remote_api_key` — the fetched OAuth token is used as the `Authorization: Bearer` header. If both are configured, the API key is ignored.
+
+If the token fetch fails (network error, bad credentials, server error), the `/ask` command surfaces the error in the results panel and does not fall back to the API key.
+
+**Proxy support**: OAuth token requests respect the `proxy` setting in `[trawler]`. If you configured `/config proxy <url>`, that proxy is used for both the token fetch and the LLM request.
+
+#### Full example: corporate endpoint with OAuth + custom headers
+
+```toml
+[trawler]
+llm_backend = "remote"
+llm_remote_url = "https://llm-gateway.corp.com/v1"
+llm_model = "gpt-4"
+proxy = "http://proxy.corp.com:8080"
+
+[trawler.llm_oauth]
+auth_url = "https://auth.corp.com/oauth2/token"
+client_id = "trawler-prod"
+client_secret = "s3cret-value"
+scope = "llm.query"
+
+[trawler.llm_remote_headers]
+X-Gateway-Team = "threat-intel"
+X-Request-Source = "trawler"
+```
+
+In this setup:
+
+1. Before each `/ask`, Trawler POSTs to `auth.corp.com` to get a Bearer token (cached until expiry)
+2. The request to `llm-gateway.corp.com` includes `Authorization: Bearer <oauth-token>`, plus the two custom `X-` headers
+3. All HTTP traffic (both OAuth and LLM) goes through the corporate proxy
+
+> **Security note**: `client_secret` is stored in plaintext in `.trawler/config.toml`. This file is project-local and gitignored by default, but you should ensure it is not committed to version control or shared inadvertently. Consider using a CI/CD secret or environment-variable injection if this is a concern.
+
 ### Memory requirements (4-bit quantized local models)
 
 | Model size | RAM needed |

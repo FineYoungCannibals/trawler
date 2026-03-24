@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import threading
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import yara
 from rich.markup import escape
@@ -12,6 +13,7 @@ from rich.markup import escape
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|[^[\]]?)")
 
 _MAX_MATCH_DISPLAY = 200  # characters
+_PROGRESS_INTERVAL = 100  # files between progress callbacks
 
 
 def _safe_value(data: bytes) -> str:
@@ -39,11 +41,19 @@ def _load_all_rules(rules_dir: Path) -> yara.Rules | None:
     return yara.compile(filepaths=filepaths)
 
 
-def scan(pattern: str | None, directories: list[str], rules_dir: str | None = None) -> Iterator[str]:
+def scan(
+    pattern: str | None,
+    directories: list[str],
+    rules_dir: str | None = None,
+    stop_event: threading.Event | None = None,
+    on_progress: Callable[[int], None] | None = None,
+) -> Iterator[str]:
     """Run YARA rules against all files in configured directories.
 
-    pattern:   glob to filter by rule name (None or '*' = all rules).
-    rules_dir: path to rules directory; defaults to the bundled rules/
+    pattern:     glob to filter by rule name (None or '*' = all rules).
+    rules_dir:   path to rules directory; defaults to the bundled rules/
+    stop_event:  set to cancel the scan between files.
+    on_progress: called every _PROGRESS_INTERVAL files with files_scanned count.
     """
     if not directories:
         yield "[yellow]No directories configured. Use /config to add one.[/]"
@@ -68,6 +78,7 @@ def scan(pattern: str | None, directories: list[str], rules_dir: str | None = No
     # Normalise pattern: None or '*' means match everything
     name_filter = pattern.strip() if pattern and pattern.strip() not in ("", "*") else None
     found_any = False
+    files_scanned = 0
 
     for dir_path in directories:
         p = Path(dir_path)
@@ -75,6 +86,8 @@ def scan(pattern: str | None, directories: list[str], rules_dir: str | None = No
             yield f"[red]Not a directory:[/] {escape(dir_path)}"
             continue
         for file_path in p.rglob("*"):
+            if stop_event and stop_event.is_set():
+                return
             if not file_path.is_file():
                 continue
             try:
@@ -98,7 +111,10 @@ def scan(pattern: str | None, directories: list[str], rules_dir: str | None = No
                             value = "[dim][binary data][/]"
                         yield f"  [dim]offset {offset}[/] {identifier}: {value}"
             except (PermissionError, OSError, yara.Error):
-                continue
+                pass
+            files_scanned += 1
+            if on_progress and files_scanned % _PROGRESS_INTERVAL == 0:
+                on_progress(files_scanned)
 
     if not found_any:
         if name_filter:

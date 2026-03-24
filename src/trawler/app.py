@@ -429,9 +429,13 @@ class TrawlerApp(App):
         if proxy:
             os.environ["HTTP_PROXY"] = proxy
             os.environ["HTTPS_PROXY"] = proxy
+            os.environ["http_proxy"] = proxy
+            os.environ["https_proxy"] = proxy
         else:
             os.environ.pop("HTTP_PROXY", None)
             os.environ.pop("HTTPS_PROXY", None)
+            os.environ.pop("http_proxy", None)
+            os.environ.pop("https_proxy", None)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -659,7 +663,7 @@ class TrawlerApp(App):
                 results.write("  Example: [cyan]/search (?i)password[/]  or  [cyan]/search (?i)(?m)^user:[/]")
                 results.write("  Supports PDF and DOCX (text-extracted). Type [cyan]/help search[/] for details.")
                 return
-            self.status.set_running(f"/search {args}")
+            self.status.set_running(f"/search {args} — Ctrl+C to cancel")
             self._run_search(cmd, args)
         elif cmd == "/rg":
             if not args:
@@ -668,10 +672,10 @@ class TrawlerApp(App):
                 results.write("  Example: [cyan]/rg -i password[/]  or  [cyan]/rg --multiline 'user.*pass'[/]")
                 results.write("  Note: text files only — use [cyan]/search[/] for PDF/DOCX. Type [cyan]/help rg[/] for details.")
                 return
-            self.status.set_running(f"/rg {args}")
+            self.status.set_running(f"/rg {args} — Ctrl+C to cancel")
             self._run_search(cmd, args)
         elif cmd == "/yara":
-            self.status.set_running("/yara")
+            self.status.set_running("/yara — scanning… Ctrl+C to cancel")
             self._run_search(cmd, args)
         elif cmd == "/semantic":
             if not args:
@@ -790,7 +794,12 @@ class TrawlerApp(App):
                 emit(line)
         elif cmd == "/yara":
             pattern = clean_args.strip() if clean_args.strip() else None
-            for line in yara_scan.scan(pattern, dirs, rules_dir=self.config.rules_dir):
+            for line in yara_scan.scan(
+                pattern, dirs,
+                rules_dir=self.config.rules_dir,
+                stop_event=self._stop_search,
+                on_progress=on_progress,
+            ):
                 emit(line)
 
         self._searching = False

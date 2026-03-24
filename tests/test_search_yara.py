@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 from trawler.search.yara_scan import _safe_value, scan
 
 
@@ -172,3 +174,48 @@ def test_safe_value_osc_sequence_stripped():
     assert "\x1b" not in result
     assert "window title" not in result
     assert "normal text" in result
+
+
+# ---------------------------------------------------------------------------
+# stop_event / on_progress — cancellation and progress reporting
+# ---------------------------------------------------------------------------
+
+def test_stop_event_pre_set_returns_early(data_dir):
+    """A pre-set stop_event should cause scan to produce no match results."""
+    ev = threading.Event()
+    ev.set()
+    results = list(scan(None, [str(data_dir)], stop_event=ev))
+    # Should have stopped before scanning any files — no match lines
+    assert not any("[YARA]" in r for r in results)
+
+
+def test_on_progress_called(tmp_path):
+    """on_progress should fire after every _PROGRESS_INTERVAL files."""
+    d = tmp_path / "many"
+    d.mkdir()
+    # Create 150 tiny files so progress fires at least once (interval=100)
+    for i in range(150):
+        (d / f"f{i}.txt").write_text(f"data {i}\n")
+    counts = []
+    results = list(scan(None, [str(d)], on_progress=lambda n: counts.append(n)))
+    assert len(counts) >= 1
+    assert counts[0] == 100
+
+
+def test_stop_event_via_progress_callback(tmp_path):
+    """Setting stop_event inside the progress callback stops the scan."""
+    d = tmp_path / "many"
+    d.mkdir()
+    for i in range(250):
+        (d / f"f{i}.txt").write_text(f"data {i}\n")
+
+    ev = threading.Event()
+    progress_calls = []
+
+    def on_progress(n):
+        progress_calls.append(n)
+        ev.set()  # cancel after first progress callback
+
+    results = list(scan(None, [str(d)], stop_event=ev, on_progress=on_progress))
+    # Should have stopped around 100 files, not processed all 250
+    assert len(progress_calls) == 1

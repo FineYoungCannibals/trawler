@@ -13,17 +13,49 @@ from rich.markup import escape
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*(?:\x07|\x1b\\)|[^[\]]?)")
 
 _MAX_MATCH_DISPLAY = 200  # characters
+_MAX_LINE_DISPLAY = 300   # characters for context lines
 _PROGRESS_INTERVAL = 100  # files between progress callbacks
+_BINARY_THRESHOLD = 0.10  # fraction of replacement chars that signals binary
+
+
+def _safe_text(text: str, max_len: int = _MAX_MATCH_DISPLAY) -> str:
+    """Sanitise a decoded string for terminal-safe Rich display."""
+    text = _ANSI_RE.sub("", text)                         # strip ANSI/VT sequences
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)    # strip remaining control chars
+    if len(text) > max_len:
+        text = text[:max_len] + "…"
+    return escape(text)
 
 
 def _safe_value(data: bytes) -> str:
     """Decode matched bytes to a terminal-safe display string."""
-    text = data.decode("utf-8", errors="replace")
-    text = _ANSI_RE.sub("", text)                         # strip ANSI/VT sequences
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)    # strip remaining control chars
-    if len(text) > _MAX_MATCH_DISPLAY:
-        text = text[:_MAX_MATCH_DISPLAY] + "…"
-    return escape(text)
+    return _safe_text(data.decode("utf-8", errors="replace"))
+
+
+def _get_line_context(file_bytes: bytes, offset: int) -> tuple[int, str] | None:
+    """Return (line_number, line_text) for the line containing *offset*.
+
+    Returns ``None`` if the surrounding content looks binary (high ratio of
+    replacement characters after UTF-8 decoding).
+    """
+    # Find line boundaries around offset
+    line_start = file_bytes.rfind(b"\n", 0, offset) + 1  # 0 if no newline found
+    line_end = file_bytes.find(b"\n", offset)
+    if line_end == -1:
+        line_end = len(file_bytes)
+
+    line_bytes = file_bytes[line_start:line_end]
+    decoded = line_bytes.decode("utf-8", errors="replace")
+
+    # Heuristic: if too many replacement chars, it's binary
+    if len(decoded) > 0:
+        replacement_ratio = decoded.count("\ufffd") / len(decoded)
+        if replacement_ratio > _BINARY_THRESHOLD:
+            return None
+
+    line_number = file_bytes[:offset].count(b"\n") + 1
+    safe_line = _safe_text(decoded.strip(), max_len=_MAX_LINE_DISPLAY)
+    return (line_number, safe_line)
 
 DEFAULT_RULES_DIR = Path(__file__).parent.parent / "rules"
 
@@ -92,6 +124,13 @@ def scan(
                 continue
             try:
                 matches = rules.match(str(file_path))
+                # Read file bytes once for line-context lookups
+                file_bytes: bytes | None = None
+                if matches:
+                    try:
+                        file_bytes = file_path.read_bytes()
+                    except (PermissionError, OSError):
+                        pass
                 for match in matches:
                     # Filter by rule name glob if pattern given
                     if name_filter and not fnmatch.fnmatch(match.rule, name_filter):
@@ -109,7 +148,21 @@ def scan(
                             value = _safe_value(string_match.instances[0].matched_data)
                         except Exception:
                             value = "[dim][binary data][/]"
-                        yield f"  [dim]offset {offset}[/] {identifier}: {value}"
+
+                        # Try to resolve line context for text files
+                        ctx = None
+                        if file_bytes is not None:
+                            try:
+                                ctx = _get_line_context(file_bytes, offset)
+                            except Exception:
+                                pass
+
+                        if ctx is not None:
+                            lineno, line_text = ctx
+                            yield f"  [dim]line {lineno}[/] {identifier}: {value}"
+                            yield f"    {line_text}"
+                        else:
+                            yield f"  [dim]offset {offset}[/] {identifier}: {value}"
             except (PermissionError, OSError, yara.Error):
                 pass
             files_scanned += 1

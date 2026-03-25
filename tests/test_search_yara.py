@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 
-from trawler.search.yara_scan import _safe_value, scan
+from trawler.search.yara_scan import _get_line_context, _safe_value, scan
 
 
 def _collect(pattern, directories):
@@ -219,3 +219,95 @@ def test_stop_event_via_progress_callback(tmp_path):
     results = list(scan(None, [str(d)], stop_event=ev, on_progress=on_progress))
     # Should have stopped around 100 files, not processed all 250
     assert len(progress_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# _get_line_context — byte offset → line number + context
+# ---------------------------------------------------------------------------
+
+def test_get_line_context_single_line():
+    content = b"hello world"
+    result = _get_line_context(content, 6)
+    assert result is not None
+    lineno, text = result
+    assert lineno == 1
+    assert "hello world" in text
+
+
+def test_get_line_context_multiline():
+    content = b"line one\nline two\nline three\n"
+    # offset 10 is in "line two"
+    result = _get_line_context(content, 10)
+    assert result is not None
+    lineno, text = result
+    assert lineno == 2
+    assert "line two" in text
+
+
+def test_get_line_context_last_line_no_newline():
+    content = b"first\nsecond\nthird"
+    # offset 14 is in "third"
+    result = _get_line_context(content, 14)
+    assert result is not None
+    lineno, text = result
+    assert lineno == 3
+    assert "third" in text
+
+
+def test_get_line_context_binary_returns_none():
+    # Mostly non-UTF-8 bytes → high replacement ratio → binary
+    content = bytes(range(128, 256))
+    result = _get_line_context(content, 10)
+    assert result is None
+
+
+def test_get_line_context_strips_control_chars():
+    content = b"clean\nhas \x07bell \x01soh here\nnext"
+    result = _get_line_context(content, 8)
+    assert result is not None
+    _, text = result
+    assert "\x07" not in text
+    assert "\x01" not in text
+    assert "bell" in text
+
+
+# ---------------------------------------------------------------------------
+# Line context in scan output
+# ---------------------------------------------------------------------------
+
+def test_scan_text_file_shows_line_context(data_dir):
+    """Text file matches should show 'line N' and the matched line content."""
+    results = _collect(None, [str(data_dir)])
+    # Find a match line (not the header)
+    match_lines = [r for r in results if r.strip().startswith("[dim]line")]
+    assert len(match_lines) > 0, "Expected 'line N' output for text file matches"
+
+    # The line after a "line N" entry should be the context line
+    for i, r in enumerate(results):
+        if r.strip().startswith("[dim]line"):
+            assert i + 1 < len(results), "Expected context line after match"
+            ctx_line = results[i + 1]
+            # Context lines are indented with 4 spaces
+            assert ctx_line.startswith("    "), f"Context line should be indented: {ctx_line!r}"
+
+
+def test_scan_binary_file_shows_offset(tmp_path):
+    """Binary file matches should fall back to 'offset N' display."""
+    rules_dir = tmp_path / "rules"
+    rules_dir.mkdir()
+    (rules_dir / "magic.yar").write_text("""
+rule find_magic {
+    strings:
+        $m = { CA FE }
+    condition:
+        $m
+}
+""")
+    d = tmp_path / "bindata"
+    d.mkdir()
+    # Write binary content with the target bytes
+    (d / "blob.bin").write_bytes(b"\xff\xfe\xfd\xca\xfe\x80\x81\x82\x83\x84")
+
+    results = list(scan(None, [str(d)], rules_dir=str(rules_dir)))
+    match_lines = [r for r in results if "offset" in r]
+    assert len(match_lines) > 0, "Binary file matches should show 'offset N'"

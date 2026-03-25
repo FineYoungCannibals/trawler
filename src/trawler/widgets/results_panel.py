@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import platform
+import shutil
 import subprocess
 
 from rich.rule import Rule
@@ -134,12 +136,40 @@ class ResultsPanel(Widget):
             self.query_one("#results-log", RichLog).write(Text(final_text))
             self._buffer.append(final_text)
 
-    def copy_to_clipboard(self) -> bool:
-        """Copy the currently visible log to clipboard via pbcopy."""
+    def get_buffer_text(self) -> str:
+        """Return the currently visible buffer as plain text."""
         buf = self._utility_buffer if self._utility_mode else self._buffer
-        text = "\n".join(buf)
-        try:
-            subprocess.run(["pbcopy"], input=text.encode(), check=True)
-            return True
-        except (FileNotFoundError, subprocess.CalledProcessError):
-            return False
+        return "\n".join(buf)
+
+    def copy_to_clipboard(self) -> bool:
+        """Copy the currently visible log to the system clipboard.
+
+        Tries platform-specific commands (pbcopy / clip.exe / xclip / xsel).
+        Returns False if no command succeeded — caller can fall back to OSC 52.
+        """
+        text = self.get_buffer_text()
+        system = platform.system()
+
+        if system == "Darwin":
+            cmd = ["pbcopy"]
+        elif system == "Windows":
+            cmd = ["clip.exe"]
+        else:
+            # Linux — prefer xclip, then xsel, then clip.exe (WSL)
+            if shutil.which("xclip"):
+                cmd = ["xclip", "-selection", "clipboard"]
+            elif shutil.which("xsel"):
+                cmd = ["xsel", "--clipboard", "--input"]
+            elif shutil.which("clip.exe"):
+                cmd = ["clip.exe"]
+            else:
+                cmd = None
+
+        if cmd:
+            try:
+                subprocess.run(cmd, input=text.encode(), check=True)
+                return True
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                pass
+
+        return False

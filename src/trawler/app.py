@@ -84,6 +84,7 @@ COMMAND_TREE: dict = {
     "/index":    {"help": "Embed and index configured dirs into ChromaDB"},
     "/ask":      {"help": "Ask a local or remote LLM about current results", "args": "<question>"},
     "/reset":    {"help": "Clear vector store & index history (requires confirmation)"},
+    "/save":     {"help": "Save current results to a file (overwrites if exists)", "args": "<path>"},
     "/help":     {"help": "Show help", "args": "[command]"},
     "/exit":     {"help": "Exit trawler"},
     "/config": {
@@ -594,10 +595,30 @@ class TrawlerApp(App):
         self.query_one(CommandBar).focus_input()
 
     def action_copy_results(self) -> None:
-        if self.query_one(ResultsPanel).copy_to_clipboard():
+        panel = self.query_one(ResultsPanel)
+        if panel.copy_to_clipboard():
             self.status.set_done("Results copied to clipboard")
         else:
-            self.status.set_error("Copy failed — pbcopy not available")
+            text = panel.get_buffer_text()
+            if text:
+                self.copy_to_clipboard(text)  # Textual OSC 52 fallback
+                self.status.set_done("Results copied to clipboard (via terminal)")
+            else:
+                self.status.set_error("Nothing to copy")
+
+    def _handle_save(self, path_str: str) -> None:
+        panel = self.query_one(ResultsPanel)
+        text = panel.get_buffer_text()
+        if not text:
+            self.status.set_error("Nothing to save — buffer is empty")
+            return
+        target = Path(path_str).expanduser().resolve()
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+            self.status.set_done(f"Saved to {target}")
+        except OSError as e:
+            self.status.set_error(f"Save failed: {e}")
 
     def on_command_bar_submitted(self, event: CommandBar.Submitted) -> None:
         self._dispatch_command(event.text)
@@ -683,6 +704,12 @@ class TrawlerApp(App):
                 return
             self.status.set_running(f"/semantic {args}")
             self._run_semantic_search(args)
+        elif cmd == "/save":
+            if not args:
+                results.write("[red]Usage:[/] /save <path>")
+                return
+            self._handle_save(args.strip())
+            return
         elif cmd == "/reset":
             self.push_screen(ConfirmResetModal(), self._on_reset_confirmed)
             return

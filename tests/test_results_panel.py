@@ -6,7 +6,7 @@ without a live Textual event loop.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from trawler.widgets.results_panel import ResultsPanel
 
@@ -199,3 +199,78 @@ def test_search_buffer_preserved_across_utility_roundtrip():
     p.show_search()
     assert "yara hit" in p._buffer
     assert "config info" not in p._buffer
+
+
+# ---------------------------------------------------------------------------
+# get_buffer_text
+# ---------------------------------------------------------------------------
+
+def test_get_buffer_text_search_mode():
+    p = _make_panel()
+    p.write("line one")
+    p.write("line two")
+    assert p.get_buffer_text() == "line one\nline two"
+
+
+def test_get_buffer_text_utility_mode():
+    p = _make_panel()
+    p.show_utility()
+    p.write("help text")
+    assert p.get_buffer_text() == "help text"
+
+
+def test_get_buffer_text_empty():
+    p = _make_panel()
+    assert p.get_buffer_text() == ""
+
+
+# ---------------------------------------------------------------------------
+# copy_to_clipboard — platform detection
+# ---------------------------------------------------------------------------
+
+_MOD = "trawler.widgets.results_panel"
+
+
+@patch(f"{_MOD}.subprocess.run")
+@patch(f"{_MOD}.platform.system", return_value="Darwin")
+def test_copy_to_clipboard_darwin(mock_sys, mock_run):
+    p = _make_panel()
+    p.write("data")
+    assert p.copy_to_clipboard() is True
+    mock_run.assert_called_once()
+    assert mock_run.call_args[0][0] == ["pbcopy"]
+
+
+@patch(f"{_MOD}.subprocess.run")
+@patch(f"{_MOD}.platform.system", return_value="Windows")
+def test_copy_to_clipboard_windows(mock_sys, mock_run):
+    p = _make_panel()
+    p.write("data")
+    assert p.copy_to_clipboard() is True
+    assert mock_run.call_args[0][0] == ["clip.exe"]
+
+
+@patch(f"{_MOD}.subprocess.run")
+@patch(f"{_MOD}.shutil.which", return_value="/usr/bin/xclip")
+@patch(f"{_MOD}.platform.system", return_value="Linux")
+def test_copy_to_clipboard_linux_xclip(mock_sys, mock_which, mock_run):
+    p = _make_panel()
+    p.write("data")
+    assert p.copy_to_clipboard() is True
+    assert mock_run.call_args[0][0] == ["xclip", "-selection", "clipboard"]
+
+
+@patch(f"{_MOD}.shutil.which", return_value=None)
+@patch(f"{_MOD}.platform.system", return_value="Linux")
+def test_copy_to_clipboard_no_tool_returns_false(mock_sys, mock_which):
+    p = _make_panel()
+    p.write("data")
+    assert p.copy_to_clipboard() is False
+
+
+@patch(f"{_MOD}.subprocess.run", side_effect=FileNotFoundError)
+@patch(f"{_MOD}.platform.system", return_value="Darwin")
+def test_copy_to_clipboard_command_failure_returns_false(mock_sys, mock_run):
+    p = _make_panel()
+    p.write("data")
+    assert p.copy_to_clipboard() is False

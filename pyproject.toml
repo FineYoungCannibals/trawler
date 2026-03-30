@@ -1,6 +1,6 @@
 [project]
 name = "trawler"
-version = "0.3.3"
+version = "0.3.4"
 description = """
 Trawler gives you a keyboard-driven interface to run regex, ripgrep, YARA,
 and semantic vector searches across breach data, leaks, and other unstructured

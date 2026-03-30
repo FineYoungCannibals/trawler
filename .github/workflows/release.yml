@@ -26,6 +26,13 @@ jobs:
           ref: develop
           fetch-depth: 0
 
+      - name: Sync develop with main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge origin/main --no-edit
+          git push origin develop
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
@@ -81,8 +88,6 @@ jobs:
 
       - name: Commit version bump to develop
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add pyproject.toml
           git commit -m "ci: bump version to ${{ steps.bump.outputs.version }} [skip ci]"
           git push origin develop

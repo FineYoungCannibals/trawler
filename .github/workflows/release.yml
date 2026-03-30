@@ -92,11 +92,8 @@ jobs:
           git commit -m "ci: bump version to ${{ steps.bump.outputs.version }} [skip ci]"
           git push origin develop
 
-      - name: Fast-forward merge into main
-        run: |
-          git checkout main
-          git merge --ff-only develop
-          git push origin main
+      - name: Update main to match develop
+        run: git push origin HEAD:refs/heads/main
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
